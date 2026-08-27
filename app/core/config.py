@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     app_name: str = "NE-EMIS"
     app_env: str = Field(default="development")
     log_level: str = Field(default="INFO")
+    api_port: int = Field(default=5000)
+
+    # Demo mode: exposes unauthenticated /students list/add backed by a local
+    # SQLite store so the container is explorable without Postgres. Disable in
+    # production (NEEMIS_DEMO_MODE=false) to enforce RLS + JWT.
+    demo_mode: bool = Field(default=True)
+    demo_db_path: str = Field(default="./data/demo_store.db")
 
     # Database
     database_url: str = Field(

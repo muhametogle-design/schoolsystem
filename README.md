@@ -86,7 +86,7 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design and module map.
 
 ```bash
 make install
-make demo          # serves the interactive dashboard at http://localhost:8000
+make demo          # serves the interactive dashboard at http://localhost:5000
 ```
 
 The `/` route renders a live, clickable dashboard (Overview, Student Registry,
@@ -94,7 +94,37 @@ Teacher Governance, Attendance, Audit & Lock, Aggregation, Funding & Payroll)
 backed by an in-memory demo service. Real DB-backed integration uses the same
 API contract via Postgres.
 
-### 5.1 Postgres
+### 5.1 Container (port 5000, Python 3.13)
+
+```bash
+docker build -t ne-emis .
+docker run --rm -p 5000:5000 -e NEEMIS_DEMO_MODE=true ne-emis
+```
+
+Or with Postgres plus the full pipeline:
+
+```bash
+docker compose up --build
+# dashboard at http://localhost:5000, API docs at /docs
+```
+
+Public container endpoints (demo mode, SQLite-backed):
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | Liveness/readiness |
+| GET | `/students` | List students |
+| POST | `/students` | Add a student |
+| GET | `/students/{ne_sid or uuid}` | Fetch one student |
+
+```bash
+curl http://localhost:5000/health
+curl http://localhost:5000/students
+curl -X POST http://localhost:5000/students -H 'Content-Type: application/json' \
+  -d '{"first_name":"Zainab","last_name":"Abubakar","dob":"2013-01-15","gender":"female"}'
+```
+
+### 5.2 Postgres
 
 ```bash
 docker compose up -d db
@@ -103,7 +133,7 @@ psql -U neemis -d neemis -v ON_ERROR_STOP=1 -f sql/001_schema.sql
 psql -U neemis -d neemis -v ON_ERROR_STOP=1 -f sql/002_indexes.sql
 ```
 
-### 5.2 Python backend
+### 5.3 Python backend
 
 ```bash
 python3 -m venv .venv
@@ -111,15 +141,15 @@ python3 -m venv .venv
 pip install -r requirements-dev.txt
 cp .env.example .env          # HS256 for local dev
 python scripts/seed_data.py    # demo campus, users, civil-service grades
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 5000
 ```
 
 Documentation:
 
-- Swagger: `http://localhost:8000/docs`
-- OpenAPI JSON: `http://localhost:8000/openapi.json`
+- Swagger: `http://localhost:5000/docs`
+- OpenAPI JSON: `http://localhost:5000/openapi.json`
 
-### 5.3 Demo users seeded
+### 5.4 Demo users seeded
 
 | Username | Password | Role |
 |---|---|---|

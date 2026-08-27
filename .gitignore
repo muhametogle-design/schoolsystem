@@ -35,3 +35,4 @@ build/
 *.sqlite
 *.sqlite3
 postgres-data/
+data/

@@ -1,7 +1,18 @@
 # NE-EMIS API Reference
 
-Base URL: `http://localhost:8000`
-All endpoints except `/auth/login` require `Authorization: Bearer <jwt>` with
+Base URL: `http://localhost:5000`
+
+In container/demo mode (`NEEMIS_DEMO_MODE=true`) the following are public and
+SQLite-backed (no JWT needed):
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | Liveness/readiness |
+| GET | `/students` | List students |
+| POST | `/students` | Add a student |
+| GET | `/students/{ne_sid or uuid}` | Fetch one student |
+
+All other endpoints require `Authorization: Bearer <jwt>` with
 a role and (for campus tenants) a `campus_id`.
 
 ## Phase 1 — Ingestion

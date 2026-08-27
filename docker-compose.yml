@@ -27,6 +27,8 @@ services:
       JWT_ALGORITHM: HS256
       JWT_SECRET_KEY: change-me-docker-dev-secret-please-rotate-in-prod
       ALLOWED_ORIGINS: "*"
+      NEEMIS_DEMO_MODE: "true"
+      NEEMIS_DEMO_DB_PATH: /app/data/demo_store.db
     command: ["python", "scripts/seed_data.py"]
     depends_on:
       db:
@@ -37,10 +39,13 @@ services:
     environment:
       <<: *appenv
     ports:
-      - "8000:8000"
+      - "5000:5000"
+    volumes:
+      - demo_data:/app/data
     depends_on:
       seed:
         condition: service_completed_successfully
 
 volumes:
   pgdata:
+  demo_data:

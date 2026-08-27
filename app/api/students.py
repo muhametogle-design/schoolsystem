@@ -1,66 +1,105 @@
-"""Student Registry & Mobility Matrix endpoints."""
+"""Student Registry & Mobility Matrix endpoints.
+
+Two modes:
+  * demo mode (NEEMIS_DEMO_MODE=true): unauthenticated /students GET/POST
+    backed by the local SQLite DemoStore — ideal for container exploration.
+  * production mode: RLS scoped JWT access to the PostgreSQL tables.
+"""
 
 from __future__ import annotations
 
 import uuid
-from typing import List
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import campus_context, get_principal, get_session
+from app.core.config import settings
+from app.core.demo_store import get_demo_store
 from app.core.tenancy import Principal
 from app.models.registry import Enrollment, Student, StudentMobility
 from app.schemas.students import MobilityCreate, MobilityOut, StudentCreate, StudentOut
 
 router = APIRouter(prefix="/students", tags=["student-registry"])
 
+if settings.demo_mode:
 
-@router.post("", response_model=StudentOut, status_code=201)
-def register_student(
-    body: StudentCreate,
-    campus_id: uuid.UUID = Depends(campus_context),
-    principal: Principal = Depends(get_principal),
-    session: Session = Depends(get_session),
-):
-    if principal.role not in ("clerk", "dean"):
-        raise HTTPException(403, "Only clerks or deans may register students")
-    student = Student(
-        campus_id=campus_id,
-        first_name=body.first_name,
-        middle_name=body.middle_name,
-        last_name=body.last_name,
-        dob=body.dob,
-        gender=body.gender,
-        enrollment_kind=body.enrollment_kind,
-        current_major=body.current_major,
-        current_grade_level=body.current_grade_level,
-        guardian_name=body.guardian_name,
-        guardian_phone=body.guardian_phone,
-        status="active",
-        matriculated_on=body.dob,
-    )
-    if body.coordinates:
-        student.coordinates = "(" + ",".join(str(x) for x in body.coordinates) + ")"
-    session.add(student)
-    session.flush()
-    session.refresh(student)  # fetch NE-SID set by DB trigger
-    return student
+    @router.get("")
+    def list_students_demo() -> List[Dict[str, Any]]:
+        """List students (demo mode, no auth, SQLite-backed)."""
+        return get_demo_store().list_students()
 
+    @router.get("/{student_id}")
+    def get_student_demo(student_id: str) -> Dict[str, Any]:
+        """Look up one student by uuid or NE-SID (demo mode)."""
+        row = get_demo_store().get_student(student_id)
+        if row is None:
+            raise HTTPException(404, "Student not found")
+        return row
 
-@router.get("", response_model=List[StudentOut])
-def list_students(
-    campus_id: uuid.UUID = Depends(campus_context),
-    session: Session = Depends(get_session),
-    status_: str = Query(default="active", alias="status"),
-):
-    rows = session.scalars(
-        select(Student)
-        .where(Student.campus_id == campus_id, Student.status == status_)
-        .order_by(Student.last_name, Student.first_name)
-    ).all()
-    return rows
+    @router.post("", status_code=201)
+    def add_student_demo(body: StudentCreate) -> Dict[str, Any]:
+        """Add a student (demo mode, no auth, SQLite-backed)."""
+        store = get_demo_store()
+        row = store.add_student(
+            {
+                "first_name": body.first_name,
+                "last_name": body.last_name,
+                "gender": body.gender,
+                "dob": body.dob.isoformat(),
+                "grade_level": body.current_grade_level,
+                "campus_code": body.current_major or "DEMO",
+            }
+        )
+        return row
+
+else:
+
+    @router.post("", response_model=StudentOut, status_code=201)
+    def register_student(
+        body: StudentCreate,
+        campus_id: uuid.UUID = Depends(campus_context),
+        principal: Principal = Depends(get_principal),
+        session: Session = Depends(get_session),
+    ):
+        if principal.role not in ("clerk", "dean"):
+            raise HTTPException(403, "Only clerks or deans may register students")
+        student = Student(
+            campus_id=campus_id,
+            first_name=body.first_name,
+            middle_name=body.middle_name,
+            last_name=body.last_name,
+            dob=body.dob,
+            gender=body.gender,
+            enrollment_kind=body.enrollment_kind,
+            current_major=body.current_major,
+            current_grade_level=body.current_grade_level,
+            guardian_name=body.guardian_name,
+            guardian_phone=body.guardian_phone,
+            status="active",
+            matriculated_on=body.dob,
+        )
+        if body.coordinates:
+            student.coordinates = "(" + ",".join(str(x) for x in body.coordinates) + ")"
+        session.add(student)
+        session.flush()
+        session.refresh(student)  # fetch NE-SID set by DB trigger
+        return student
+
+    @router.get("", response_model=List[StudentOut])
+    def list_students(
+        campus_id: uuid.UUID = Depends(campus_context),
+        session: Session = Depends(get_session),
+        status_: str = Query(default="active", alias="status"),
+    ):
+        rows = session.scalars(
+            select(Student)
+            .where(Student.campus_id == campus_id, Student.status == status_)
+            .order_by(Student.last_name, Student.first_name)
+        ).all()
+        return rows
 
 
 @router.get("/{student_id}", response_model=StudentOut)
