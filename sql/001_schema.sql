@@ -23,10 +23,10 @@
 
 BEGIN;
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid(), digest()
+-- gen_random_uuid() is built into PostgreSQL 13+; citext is the only
+-- contributed extension the schema requires. Keep it minimal so the schema
+-- runs on the official postgres image without extra contrib packages.
 CREATE EXTENSION IF NOT EXISTS citext;     -- case-insensitive codes
-CREATE EXTENSION IF NOT EXISTS btree_gin;  -- JSONB+scalar composite indexes
-CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- fuzzy lookup for names
 
 -- ---------------------------------------------------------------------------
 -- ENUMs
