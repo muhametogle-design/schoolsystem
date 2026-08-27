@@ -1,4 +1,4 @@
-.PHONY: install test seed db-up run
+.PHONY: install test seed db-up run demo
 
 install:
 	python3 -m venv .venv
@@ -15,3 +15,6 @@ db-up:
 
 run:
 	. .venv/bin/activate && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+demo:
+	. .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000

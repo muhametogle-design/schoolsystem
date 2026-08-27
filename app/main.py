@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api import (
     aggregation,
     auth,
+    demo,
     health,
     ingestion,
     locking,
@@ -45,13 +50,15 @@ app.include_router(ingestion.router)
 app.include_router(locking.router)
 app.include_router(aggregation.router)
 app.include_router(state.router)
+app.include_router(demo.router)
+
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 
 
 @app.get("/")
-def root() -> dict:
-    return {
-        "service": settings.app_name,
-        "version": "1.0.0",
-        "docs": "/docs",
-        "openapi": "/openapi.json",
-    }
+def root():
+    return FileResponse(FRONTEND_DIR / "index.html")
+
+
+# Serve the demo dashboard; explicit API routes above take precedence.
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

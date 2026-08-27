@@ -82,6 +82,18 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design and module map.
 
 ## 5. Quick start (local)
 
+### 5.0 Skip straight to the UI (no DB needed)
+
+```bash
+make install
+make demo          # serves the interactive dashboard at http://localhost:8000
+```
+
+The `/` route renders a live, clickable dashboard (Overview, Student Registry,
+Teacher Governance, Attendance, Audit & Lock, Aggregation, Funding & Payroll)
+backed by an in-memory demo service. Real DB-backed integration uses the same
+API contract via Postgres.
+
 ### 5.1 Postgres
 
 ```bash
