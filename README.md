@@ -111,14 +111,32 @@ docker compose up --build
 **PowerShell (Windows)**
 
 ```powershell
-.\scripts\run_docker.ps1            # build + db + seed + api
-.\scripts\smoke_test.ps1            # health + students + add + fetch
+# From the repository root (the folder containing scripts/ and .git/):
+.\scripts\check_env.ps1                 # verify you are in the repo + Docker is on PATH
+.\scripts\run_docker.ps1                # build + db + seed + api
+.\scripts\smoke_test.ps1                # health + students + add + fetch
 .\scripts\push_image.ps1 -Tag "ghcr.io/yourorg/ne-emis:1.0.0"
 
 # Login to your registry first if needed
 # docker login ghcr.io
 # docker login yourregistry.azurecr.io
 ```
+
+> Troubleshoot `The term 'docker' is not recognized`:
+> 1. Make sure you are in the repo root (your PowerShell prompt should be
+>    `C:\...\schoolsystem>`, **not** `C:\WINDOWS\system32>`).
+> 2. Install + launch **Docker Desktop** (https://www.docker.com/products/docker-desktop/).
+> 3. Open a **new** PowerShell and confirm with `docker --version`.
+>
+> Troubleshoot `The term '.\scripts\run_docker.ps1' is not recognized`:
+> 1. You are not in the repository folder. Open the repo folder in File
+>    Explorer, then `Shift + right-click` → *"Open PowerShell window here"*,
+>    or `cd` to it explicitly.
+> 2. If the scripts are missing entirely you may be on the `main` branch:
+>    ```powershell
+>    git checkout arena/01a043e9-schoolsystem
+>    git pull
+>    ```
 
 Public container endpoints (demo mode, SQLite-backed):
 
