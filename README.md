@@ -94,6 +94,31 @@ Teacher Governance, Attendance, Audit & Lock, Aggregation, Funding & Payroll)
 backed by an in-memory demo service. Real DB-backed integration uses the same
 API contract via Postgres.
 
+### 5.0 Clone the repo on Windows (if you don't have it locally)
+
+Your current folder `C:\Users\EastG` has no `schoolsystem` folder yet — that's
+why `.\scripts\...` isn't recognised. Get the code first:
+
+```powershell
+# Go to your user folder (or wherever you want it)
+cd C:\Users\EastG
+
+# Clone the repo
+git clone https://github.com/muhametogle-design/schoolsystem.git
+
+# Enter it and take the working branch (this is where all scripts live)
+cd schoolsystem
+git checkout arena/01a043e9-schoolsystem
+git pull
+
+# Verify
+.\scripts\check_env.ps1
+```
+
+> If `git` isn't recognised, install Git for Windows
+> (https://git-scm.com/download/win) or use GitHub Desktop to clone
+> `muhametogle-design/schoolsystem` to `C:\Users\EastG`.
+
 ### 5.1 Container (port 5000, Python 3.13)
 
 ```bash
