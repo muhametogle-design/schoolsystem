@@ -108,6 +108,18 @@ docker compose up --build
 # dashboard at http://localhost:5000, API docs at /docs
 ```
 
+**PowerShell (Windows)**
+
+```powershell
+.\scripts\run_docker.ps1            # build + db + seed + api
+.\scripts\smoke_test.ps1            # health + students + add + fetch
+.\scripts\push_image.ps1 -Tag "ghcr.io/yourorg/ne-emis:1.0.0"
+
+# Login to your registry first if needed
+# docker login ghcr.io
+# docker login yourregistry.azurecr.io
+```
+
 Public container endpoints (demo mode, SQLite-backed):
 
 | Method | Path | Description |
@@ -122,6 +134,16 @@ curl http://localhost:5000/health
 curl http://localhost:5000/students
 curl -X POST http://localhost:5000/students -H 'Content-Type: application/json' \
   -d '{"first_name":"Zainab","last_name":"Abubakar","dob":"2013-01-15","gender":"female"}'
+```
+
+Same calls in PowerShell:
+
+```powershell
+Invoke-RestMethod http://localhost:5000/health
+Invoke-RestMethod http://localhost:5000/students
+
+$body = @{ first_name="Zainab"; last_name="Abubakar"; dob="2013-01-15"; gender="female" } | ConvertTo-Json
+Invoke-RestMethod http://localhost:5000/students -Method Post -ContentType "application/json" -Body $body
 ```
 
 ### 5.2 Postgres
