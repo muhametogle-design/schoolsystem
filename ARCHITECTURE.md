@@ -1,87 +1,81 @@
-# NE-EMIS Architecture
+# Architecture
 
-## 1. Topology
+## Topology
 
 ```text
-            Campus A               Campus B                 State
-        ┌──────────────┐        ┌──────────────┐        ┌────────────────┐
-        │ clerk       │        │ clerk       │        │ state_admin    │
-        │ dean  → MID │        │ dean  → MID │        │ aggregator     │
-        └──────┬───────┘        └──────┬───────┘        └───────┬────────┘
-               │ campus RLS            │ campus RLS            │ central RLS
-               ▼                       ▼                       ▼
-    ┌─────────────────────────────────────────────────────────────────────┐
-    │            PostgreSQL 15+                                            │
-    │  public.*  (tenant-owned: students, teachers, attendance, ...)      │
-    │  central.* (state-owned: student_registry, teacher_registry, KPIs,  │
-    │            funding_payouts)                                         │
-    │  app.*     (RLS helper functions, immutable ID generators)          │
-    └─────────────────────────────────────────────────────────────────────┘
+   Tenant A (Greenfield)      Tenant B (Horizon)          State Government
+ ┌────────────────────┐    ┌────────────────────┐    ┌─────────────────────┐
+ │ school_manager     │    │ school_manager     │    │ state_inspector     │
+ │ teacher            │    │ teacher            │    │ (super-admin, R/O)  │
+ └─────────┬──────────┘    └─────────┬──────────┘    └─────────┬───────────┘
+           │ JWT + school_id          │                         │ JWT (school_id NULL)
+           ▼                          ▼                         ▼
+ ┌───────────────────────────────────────────────────────────────────────────┐
+ │ FastAPI monolith                                                          │
+ │  /api/v1/school/*  tenant ERP   (scoped by user.school_id on EVERY query)    │
+ │  /api/v1/school/finance/* 🔒    private financial tier (school_manager only) │
+ │  /api/v1/state/*   read-only academics + alarm engine (state_inspector only) │
+ │  /ws            live WebSocket bus (red_alarm / exam_published / …)       │
+ │                                                                            │
+ │  services: Phase-2 worker cron (15:00) · ID generator · publish valve      │
+ └───────────────────────────────┬───────────────────────────────────────────┘
+                                 ▼
+ ┌───────────────────────────────────────────────────────────────────────────┐
+ │ PostgreSQL 14+  (shared DB, logical multi-tenancy via school_id)          │
+ │  academic tier  — state-readable (RLS: published grades only)             │
+ │  financial tier — 🔒 DENY-ALL RLS for state roles, zero grants            │
+ │  demo tier      — SQLite engine (same ORM, same API)                      │
+ └───────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. Tenant isolation
+## Request lifecycle (tenant write)
 
-Every tenant table carries `campus_id`. On each API request the backend sets:
+1. `Authorization: Bearer <JWT>` → `get_current_user` loads the user + role.
+2. `require_school(...)` rejects state roles (audited), enforces role matrix.
+3. The handler injects `user.school_id` into every filter — a query without a
+   tenant predicate is structurally impossible to write through the router.
+4. On PostgreSQL a second line of defence scopes rows via RLS session vars.
 
-```sql
-SELECT set_config('neemis.campus_id', :campus_id, true);
-SELECT set_config('neemis.role', :role, true);
-SELECT set_config('neemis.user_id', :user_id, true);
+## The 15:00 Red Alarm pipeline
+
+```text
+ scheduler loop (platform tz)
+   └─ sleep until 15:00
+        └─ process_daily_attendance_deadlines(session)
+             ├─ SELECT active private_schools
+             ├─ for each school with no submitted roster today:
+             │    ├─ UPSERT daily_submission_logs (alarm_triggered = true)
+             │    ├─ INSERT communication_logs (Red_Alarm, Pending)
+             │    └─ emit_live_websocket_alarm_event() ──► /ws ──► all
+             │        state_inspector browsers (banner + toast + map refresh)
+             └─ COMMIT
 ```
 
-The policy on each tenant table is:
+The same function backs `POST /api/v1/state/audit/run` so the dashboard can demo
+the escalation instantly.
 
-```sql
-USING (campus_id = app.current_campus_id() OR app.is_state_role())
-WITH CHECK (campus_id = app.current_campus_id() OR app.is_state_role())
+## Exam Data Release Valve
+
+```text
+ teacher/school → student_grades (is_published = FALSE)   [private draft]
+                         │
+        school_manager: POST /api/v1/school/grades/publish
+                         │  (single transaction)
+                         ├─ UPDATE student_grades SET is_published = TRUE
+                         ├─ INSERT exam_submission_events  (IMMUTABLE —
+                         │       trigger blocks UPDATE/DELETE on PostgreSQL)
+                         └─ ws broadcast exam_published
+                         ▼
+ View C / state analytics pull ONLY scores carrying a matching token event
+ inside exam_submission_events (correlated EXISTS — Query C)
 ```
 
-So a clerk can only read/write their own campus; `state_admin`, `system`
-and `aggregator` roles can access central state tables through the RLS policy.
+## Technology
 
-## 3. Identifier generation
-
-All global identifiers are generated *inside the database* by triggers so no
-application code can set or rewrite them:
-
-| Trigger | Table | Produces |
-|---|---|---|
-| `trg_students_gen_sid` | `students` | `NE-SID-<hex-uuid>` |
-| `trg_teachers_gen_tid` | `teachers` | `NE-TID-<hex-uuid>` |
-| `trg_managers_gen_mid` | `managers` | `NE-MID-<hex-uuid>` |
-| `trg_sections_gen_cid` | `course_sections` | `NE-CID-<STATE>-<SECTION>-<hex-uuid>` |
-
-## 4. Module map
-
-```
-app/core/crypto_lock.py        Ed25519 envelope signing/hashing
-app/services/locking.py        Phase 2 lock/unlock orchestration
-app/services/ingestion.py      Phase 1 validation + persistence helpers
-app/services/aggregation.py    Phase 3 central registry builders
-app/services/state_control.py  Phase 4 KPIs, vacancies, payouts
-```
-
-## 5. Data flow
-
-```mermaid
-flowchart LR
-  A[Clerk enters data] --> B{Phase 1 validation}
-  B --> C[campus tables]
-  C --> D[Dean reviews]
-  D --> E{Ed25519 lock?}
-  E -->|yes| F[record_locks + freeze trigger]
-  E -->|no| C
-  F --> G[Overnight batch]
-  G --> H[central.* registries]
-  H --> I[State KPI + vacancy]
-  I --> J[Automated payouts]
-```
-
-## 6. Failure handling
-
-- Validation rejects bad rows before any write (real-time rules).
-- Batch aggregation is idempotent by `snapshot_key`.
-- Record freeze raises `neemis.record_locked` (SQLSTATE `55000`) on tamper
-  attempts.
-- State unlock requires a role permitted by `STATE_UNLOCK_ROLES` plus a
-  counter-signature.
+* **Backend** — FastAPI, SQLAlchemy 2.0 ORM, PyJWT (HS256), Argon2id hashes.
+* **Realtime** — native WebSockets with a broadcast `ConnectionManager`.
+* **Database** — PostgreSQL 14+ (authoritative DDL in `sql/`); SQLite demo
+  engine so the platform boots with zero infrastructure.
+* **Worker** — in-process asyncio cron (no external queue needed); swap in
+  Celery/APScheduler by calling the same service function.
+* **Frontend** — dependency-free vanilla JS SPA served by the API at `/`.

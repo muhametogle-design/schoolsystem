@@ -1,241 +1,199 @@
-"""Course / classroom / academic-artifact models (NE-CID, grades, attendance)."""
+"""Compliance tier: classes 1-12, students, grades, attendance & the release valve."""
 
 from __future__ import annotations
 
-import uuid
-from datetime import date, datetime
+import datetime as dt
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
-    Float,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, CampusScopedMixin, TimestampMixin
-from app.models.types import (
-    AttendanceStatus,
-    DataSource,
-    GradeBand,
-    IncidentKind,
-    IncidentLevel,
-    PersonStatus,
-)
+from app.models.base import Base
+
+CLASS_LEVELS = tuple(f"Class {n}" for n in range(1, 13))
+ATTENDANCE_STATUSES = ("Present", "Absent", "Late", "Excused")
 
 
-class StateCurricula(Base):
-    __tablename__ = "state_curricula"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
-    )
-    state_code: Mapped[str] = mapped_column(String(2), nullable=False)
-    subject_code: Mapped[str] = mapped_column(String, nullable=False)
-    subject_name: Mapped[str] = mapped_column(String, nullable=False)
-    curriculum_version: Mapped[int] = mapped_column(Integer, default=1)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+class SchoolClass(Base):
+    __tablename__ = "school_classes"
     __table_args__ = (
-        UniqueConstraint(
-            "state_code", "subject_code", "curriculum_version", name="uq_curriculum"
+        CheckConstraint(
+            "class_level IN (%s)" % ", ".join(f"'{c}'" for c in CLASS_LEVELS), name="chk_class_level"
+        ),
+        UniqueConstraint("school_id", "class_level", "class_stream", name="uq_class_per_school"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    class_level: Mapped[str] = mapped_column(String(50), nullable=False)
+    class_stream: Mapped[str] = mapped_column(String(50), nullable=False)
+    room_number: Mapped[str | None] = mapped_column(String(50))
+    class_teacher_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    school = relationship("PrivateSchool", back_populates="classes")
+    students = relationship("Student", back_populates="current_class")
+
+
+class Student(Base):
+    __tablename__ = "students"
+    __table_args__ = (
+        Index("idx_student_search_national_id", "national_student_id"),
+        Index("idx_student_names", "last_name", "first_name"),
+        CheckConstraint(
+            "gender IN ('Male', 'Female', 'Other') OR gender IS NULL", name="chk_gender"
         ),
     )
 
-
-class Classroom(Base, CampusScopedMixin):
-    __tablename__ = "classrooms"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
-    )
-    room_code: Mapped[str] = mapped_column(String, nullable=False)
-    building: Mapped[str | None] = mapped_column(String)
-    capacity: Mapped[int] = mapped_column(Integer, default=40)
-    is_laboratory: Mapped[bool] = mapped_column(Boolean, default=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    national_student_id: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
+    current_class_id: Mapped[int | None] = mapped_column(ForeignKey("school_classes.id", ondelete="SET NULL"))
+    first_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    date_of_birth: Mapped[dt.date | None] = mapped_column(Date)
+    gender: Mapped[str | None] = mapped_column(String(20))
+    guardian_name: Mapped[str | None] = mapped_column(String(255))
+    guardian_relationship: Mapped[str | None] = mapped_column(String(50))
+    guardian_phone: Mapped[str | None] = mapped_column(String(50))
+    guardian_email: Mapped[str | None] = mapped_column(String(255))
+    emergency_contact_phone: Mapped[str | None] = mapped_column(String(50))
+    enrollment_date: Mapped[dt.date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    __table_args__ = (UniqueConstraint("campus_id", "room_code", name="uq_classroom_room"),)
+    created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
+
+    school = relationship("PrivateSchool")
+    current_class = relationship("SchoolClass", back_populates="students")
 
 
-class CourseSection(Base, CampusScopedMixin):
-    """NE-CID: state curriculum bound to a campus section + classroom."""
-
-    __tablename__ = "course_sections"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
-    )
-    ne_cid: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    state_code: Mapped[str] = mapped_column(String(2), nullable=False)
-    curriculum_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("state_curricula.id"), nullable=False
-    )
-    academic_year_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("academic_years.id"), nullable=False
-    )
-    term_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("terms.id"), nullable=False
-    )
-    classroom_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("classrooms.id"), nullable=False
-    )
-    teacher_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("teachers.id")
-    )
-    section_code: Mapped[str] = mapped_column(String, nullable=False)
-    enrolled_count: Mapped[int] = mapped_column(Integer, default=0)
-    weekly_contact_hours: Mapped[float] = mapped_column(Numeric(5, 1), default=0)
-    schedule_json: Mapped[list] = mapped_column(JSONB, default=list)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+class Subject(Base):
+    __tablename__ = "subjects"
     __table_args__ = (
-        UniqueConstraint(
-            "campus_id",
-            "curriculum_id",
-            "academic_year_id",
-            "term_id",
-            "section_code",
-            name="uq_section_composite",
+        UniqueConstraint("school_id", "subject_code", "class_level", name="uq_subject_per_school"),
+        CheckConstraint(
+            "class_level IN (%s)" % ", ".join(f"'{c}'" for c in CLASS_LEVELS), name="chk_subject_class_level"
         ),
     )
 
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    subject_code: Mapped[str] = mapped_column(String(30), nullable=False)
+    subject_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    class_level: Mapped[str] = mapped_column(String(50), nullable=False)
 
-class CourseEnrollment(Base, CampusScopedMixin):
-    __tablename__ = "course_enrollments"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
-    )
-    student_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("students.id"), nullable=False
-    )
-    course_section_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("course_sections.id"), nullable=False
-    )
-    status: Mapped[str] = mapped_column(PersonStatus, default="active", nullable=False)
-    enrolled_on: Mapped[date] = mapped_column(Date, default=date.today, nullable=False)
+class StudentGrade(Base):
+    """Continuous assessment marks. PRIVATE draft until `is_published` flips."""
+
+    __tablename__ = "student_grades"
     __table_args__ = (
-        UniqueConstraint("student_id", "course_section_id", name="uq_student_section"),
+        CheckConstraint("numeric_score >= 0 AND numeric_score <= 100", name="chk_score_range"),
+        UniqueConstraint("student_id", "subject_id", "academic_year_id", "exam_name", name="uq_grade_record"),
+        Index("idx_grades_lookup", "school_id", "class_id", "subject_id"),
+        Index("idx_grades_publication_valve", "is_published", "school_id"),
     )
 
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    class_id: Mapped[int] = mapped_column(ForeignKey("school_classes.id", ondelete="CASCADE"), nullable=False)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    academic_year_id: Mapped[int] = mapped_column(ForeignKey("academic_years.id"), nullable=False)
+    exam_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    numeric_score: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False)
+    recorded_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
 
-class Transcript(Base):
-    __tablename__ = "transcripts"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
-    )
-    student_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("students.id"), nullable=False
-    )
-    campus_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("campus.id"), nullable=False
-    )
-    academic_year_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("academic_years.id"), nullable=False
-    )
-    term_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("terms.id"))
-    cumulative_gpa: Mapped[float] = mapped_column(Numeric(4, 2), default=0)
-    credits_earned: Mapped[float] = mapped_column(Numeric(6, 1), default=0)
-    class_rank: Mapped[int | None] = mapped_column(Integer)
-    is_inherited: Mapped[bool] = mapped_column(Boolean, default=False)
-    source_sin: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("transcripts.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
+    student = relationship("Student")
+    subject = relationship("Subject")
 
 
-class ExamSheet(Base, CampusScopedMixin):
-    __tablename__ = "exam_sheets"
+class ExamSubmissionEvent(Base):
+    """Immutable record registered when a school hits
+    'Publish Exam Marks to State'."""
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
-    )
-    course_section_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("course_sections.id"), nullable=False
-    )
-    student_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("students.id"), nullable=False
-    )
-    exam_type: Mapped[str] = mapped_column(String, nullable=False)
-    score: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
-    grade_band: Mapped[str | None] = mapped_column(GradeBand)
-    recorded_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("app_users.id"))
-    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __tablename__ = "exam_submission_events"
+    __table_args__ = (Index("idx_exam_events_school", "school_id", "published_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    class_id: Mapped[int] = mapped_column(ForeignKey("school_classes.id", ondelete="CASCADE"), nullable=False)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    academic_year_id: Mapped[int] = mapped_column(ForeignKey("academic_years.id"), nullable=False)
+    exam_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    records_released: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    published_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    published_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
+
+
+class LiveAttendance(Base):
+    __tablename__ = "live_attendance"
     __table_args__ = (
-        UniqueConstraint(
-            "course_section_id", "student_id", "exam_type", name="uq_exam_sheet"
+        CheckConstraint(
+            "status IN (%s)" % ", ".join(f"'{s}'" for s in ATTENDANCE_STATUSES),
+            name="chk_attendance_status",
         ),
+        UniqueConstraint("student_id", "date", name="uq_attendance_per_day"),
+        Index("idx_attendance_compliance", "date", "school_id"),
     )
 
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    class_id: Mapped[int] = mapped_column(ForeignKey("school_classes.id", ondelete="CASCADE"), nullable=False)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    recorded_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
 
-class Attendance(Base, CampusScopedMixin):
-    __tablename__ = "attendance"
+    student = relationship("Student")
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
-    )
-    student_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("students.id"), nullable=False
-    )
-    course_section_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("course_sections.id")
-    )
-    attendance_date: Mapped[date] = mapped_column(Date, default=date.today, nullable=False)
-    status: Mapped[str] = mapped_column(AttendanceStatus, nullable=False)
-    hours: Mapped[float] = mapped_column(Numeric(4, 1), default=0)
-    clerk_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("app_users.id"), nullable=False
-    )
-    source: Mapped[str] = mapped_column(DataSource, default="portal", nullable=False)
-    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+class DailySubmissionLog(Base):
+    __tablename__ = "daily_submission_logs"
     __table_args__ = (
-        UniqueConstraint("student_id", "course_section_id", "attendance_date", name="uq_attendance"),
+        UniqueConstraint("school_id", "log_date", name="uq_daily_log"),
+        Index("idx_compliance_tracker", "log_date", "alarm_triggered"),
     )
 
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    log_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    attendance_submitted: Mapped[bool] = mapped_column(Boolean, default=False)
+    attendance_submitted_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    alarm_triggered: Mapped[bool] = mapped_column(Boolean, default=False)
+    alarm_raised_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 
-class IncidentReport(Base, CampusScopedMixin):
-    __tablename__ = "incident_reports"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
-    )
-    student_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("students.id"), nullable=False
-    )
-    incident_date: Mapped[date] = mapped_column(Date, default=date.today)
-    kind: Mapped[str] = mapped_column(IncidentKind, nullable=False)
-    severity: Mapped[str] = mapped_column(IncidentLevel, default="low", nullable=False)
-    description: Mapped[str] = mapped_column(String, nullable=False)
-    reported_by: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("app_users.id"), nullable=False
-    )
-    resolved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("managers.id"))
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    status: Mapped[str] = mapped_column(PersonStatus, default="active")
+    school = relationship("PrivateSchool")
 
 
-class TruancyMark(Base, CampusScopedMixin):
-    __tablename__ = "truancy_marks"
+class CommunicationLog(Base):
+    __tablename__ = "communication_logs"
+    __table_args__ = (
+        CheckConstraint(
+            "delivery_status IN ('Pending', 'Sent', 'Delivered', 'Failed')",
+            name="chk_delivery_status",
+        ),
+        Index("idx_comm_logs_type", "message_type", "timestamp_sent"),
+    )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
-    )
-    student_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("students.id"), nullable=False
-    )
-    academic_year_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("academic_years.id"), nullable=False
-    )
-    unexcused_absences: Mapped[int] = mapped_column(Integer, default=0)
-    consecutive_misses: Mapped[int] = mapped_column(Integer, default=0)
-    is_chronic: Mapped[bool] = mapped_column(Boolean, default=False)
-    last_recomputed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    school_id: Mapped[int | None] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"))
+    recipient_phone: Mapped[str | None] = mapped_column(String(50))
+    message_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    message_content: Mapped[str] = mapped_column(Text, nullable=False)
+    delivery_status: Mapped[str] = mapped_column(String(20), default="Pending")
+    timestamp_sent: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())

@@ -1,34 +1,37 @@
 version: "3.9"
 
+# Production-style stack: real PostgreSQL 16 + the API + the demo seeder.
+# The Phase 1 DDL, security firewall and analytics views are applied
+# automatically on first boot from ./sql (docker-entrypoint-initdb.d).
+
 services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: neemis
-      POSTGRES_PASSWORD: neemis
-      POSTGRES_DB: neemis
+      POSTGRES_USER: school
+      POSTGRES_PASSWORD: school
+      POSTGRES_DB: schoolsystem
     ports:
       - "5432:5432"
     volumes:
-      - ./sql:/docker-entrypoint-initdb.d
+      - ./sql:/docker-entrypoint-initdb.d:ro
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U neemis"]
+      test: ["CMD-SHELL", "pg_isready -U school -d schoolsystem"]
       interval: 5s
       timeout: 5s
       retries: 20
 
-  # One-shot service: applies the schema (already done by db init) and seeds
-  # demo campus/users/civil-service grades, then exits.
   seed:
     build: .
     environment: &appenv
-      DATABASE_URL: postgresql+psycopg2://neemis:neemis@db:5432/neemis
-      JWT_ALGORITHM: HS256
-      JWT_SECRET_KEY: change-me-docker-dev-secret-please-rotate-in-prod
-      ALLOWED_ORIGINS: "*"
-      NEEMIS_DEMO_MODE: "true"
-      NEEMIS_DEMO_DB_PATH: /app/data/demo_store.db
+      DATABASE_URL: postgresql+psycopg2://school:school@db:5432/schoolsystem
+      JWT_SECRET_KEY: change-me-docker-dev-secret-rotate-in-prod
+      APP_ENV: production
+      PLATFORM_TIMEZONE: Africa/Nairobi
+      AUTO_SEED_DEMO: "true"
+      ENABLE_SCHEDULER: "true"
+      CORS_ORIGINS_RAW: "*"
     command: ["python", "scripts/seed_data.py"]
     depends_on:
       db:
@@ -36,16 +39,14 @@ services:
 
   api:
     build: .
-    environment:
-      <<: *appenv
+    environment: *appenv
     ports:
-      - "5000:5000"
-    volumes:
-      - demo_data:/app/data
+      - "8000:8000"
     depends_on:
+      db:
+        condition: service_healthy
       seed:
         condition: service_completed_successfully
 
 volumes:
   pgdata:
-  demo_data:

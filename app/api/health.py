@@ -1,31 +1,29 @@
-"""Health and readiness endpoints."""
+"""Liveness + platform metadata."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+import time
 
-from app.api.deps import get_session
+from fastapi import APIRouter
+
 from app.core.config import settings
+from app.core.db import IS_SQLITE
 
-router = APIRouter(tags=["system"])
+router = APIRouter(prefix="/api/health", tags=["health"])
+
+_BOOTED_AT = time.time()
 
 
-@router.get("/health")
-def health() -> dict:
+@router.get("")
+def health():
     return {
-        "service": settings.app_name,
         "status": "ok",
+        "app": settings.app_name,
+        "version": settings.app_version,
         "environment": settings.app_env,
-    }
-
-
-@router.get("/ready")
-def ready(session: Session = Depends(get_session)):
-    version = session.execute(text("SELECT version()")).scalar()
-    return {
-        "status": "ready",
-        "database": version.split(",")[0],
-        "rls_enabled": True,
+        "database": "sqlite-demo" if IS_SQLITE else "postgresql",
+        "uptime_seconds": round(time.time() - _BOOTED_AT, 1),
+        "attendance_deadline": settings.attendance_deadline,
+        "alarm_audit_time": settings.alarm_audit_time,
+        "platform_timezone": settings.platform_timezone,
     }

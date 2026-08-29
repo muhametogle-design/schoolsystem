@@ -1,65 +1,85 @@
-"""Authentication endpoints (login, token introspection)."""
+"""Authentication endpoints."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_login_session, get_principal
+from app.api.deps import AUTH_COOKIE, get_current_user
+from app.core.config import settings
+from app.core.db import get_db
+from app.core.ratelimit import login_throttle
 from app.core.security import create_access_token, verify_password
-from app.core.tenancy import Principal
-from app.models.identity import AppUser, Manager
+from app.models import PrivateSchool, User
+from app.schemas import LoginRequest, TokenResponse, UserInfo
 
-router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-class LoginRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=120)
-    password: str = Field(min_length=8)
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str
-    role: str
-    campus_id: str | None
-    ne_mid: str | None
+router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, session: Session = Depends(get_login_session)):
-    user = session.scalar(select(AppUser).where(AppUser.username == body.username))
-    if user is None or not verify_password(body.password, user.password_hash):
-        raise HTTPException(401, "Invalid credentials")
-    if not user.is_active:
-        raise HTTPException(403, "Account inactive")
+def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    email = payload.email.lower()
+    login_throttle.check(request, email)
 
-    manager: Manager | None = None
-    if user.role == "dean":
-        manager = session.scalar(select(Manager).where(Manager.user_id == user.id))
-    token = create_access_token(
-        user_id=user.id,
-        role=user.role,
-        campus_id=user.campus_id,
-        manager_id=manager.id if manager else None,
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if not user or not verify_password(payload.password, user.password_hash):
+        login_throttle.record_failure(request, email)
+        # Uniform message: never reveal whether the account exists.
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+    login_throttle.reset(request, email)
+
+    school_name = None
+    if user.school_id:
+        school = db.get(PrivateSchool, user.school_id)
+        school_name = school.school_name if school else None
+
+    token = create_access_token(user_id=user.id, role=user.role, school_id=user.school_id)
+
+    # HttpOnly cookie fallback: survives proxies/frames that strip the
+    # Authorization header. The header remains the primary mechanism.
+    response.set_cookie(
+        AUTH_COOKIE,
+        token,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        max_age=settings.access_token_expire_minutes * 60,
+        path="/",
     )
     return TokenResponse(
         access_token=token,
-        token_type="bearer",
-        role=user.role,
-        campus_id=str(user.campus_id) if user.campus_id else None,
-        ne_mid=manager.ne_mid if manager else None,
+        user=UserInfo(
+            id=user.id,
+            email=user.email,
+            role=user.role,
+            school_id=user.school_id,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            school_name=school_name,
+        ),
     )
 
 
-@router.get("/me")
-def me(principal: Principal = Depends(get_principal)):
-    return {
-        "user_id": str(principal.user_id),
-        "role": principal.role,
-        "campus_id": str(principal.campus_id) if principal.campus_id else None,
-        "manager_id": str(principal.manager_id) if principal.manager_id else None,
-        "is_state": principal.is_state,
-    }
+@router.get("/me", response_model=UserInfo)
+def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    school_name = None
+    if user.school_id:
+        school = db.get(PrivateSchool, user.school_id)
+        school_name = school.school_name if school else None
+    return UserInfo(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        school_id=user.school_id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        school_name=school_name,
+    )
+
+
+@router.post("/logout")
+def logout(response: Response):
+    """Clear the auth cookie (clients also drop their local token)."""
+    response.delete_cookie(AUTH_COOKIE, path="/")
+    return {"signed_out": True}

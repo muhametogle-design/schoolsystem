@@ -1,91 +1,86 @@
-# NE-EMIS API Reference
+# API Reference
 
-Base URL: `http://localhost:5000`
+Base URL: `/` — interactive OpenAPI docs at `/docs`.
 
-In container/demo mode (`NEEMIS_DEMO_MODE=true`) the following are public and
-SQLite-backed (no JWT needed):
+All protected routes require `Authorization: Bearer <jwt>` from
+`POST /api/auth/login`.
+
+---
+
+## Auth
+
+| Method | Path | Roles | Description |
+|---|---|---|---|
+| POST | `/api/auth/login` | — | `{email, password}` → `{access_token, user}` |
+| GET | `/api/auth/me` | any | Current identity + tenant binding |
+
+## State portal (state_inspector only)
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/health` | Liveness/readiness |
-| GET | `/students` | List students |
-| POST | `/students` | Add a student |
-| GET | `/students/{ne_sid or uuid}` | Fetch one student |
+| GET | `/api/v1/state/compliance-map` | **View A** — command map + alarm summary for every active school |
+| GET | `/api/v1/state/students/search?q=` | **View B** — statewide lookup by national ID (`STU-…`) or surname |
+| GET | `/api/v1/state/analytics/grades?school_id=&class_level=` | **Query C** — subject benchmarking index; only scores carrying a matching token event in `exam_submission_events` |
+| GET | `/api/v1/state/attendance/live?school_id=&date=` | Read-only live attendance feed |
+| GET | `/api/v1/state/alarms` | Red_Alarm communication-gateway feed |
+| GET | `/api/v1/state/exam-events` | Immutable publication ledger |
+| GET | `/api/v1/state/schools` | Licensed schools + accreditation status |
+| POST | `/api/v1/state/audit/run` | Fire the 15:00 Red Alarm worker immediately |
 
-All other endpoints require `Authorization: Bearer <jwt>` with
-a role and (for campus tenants) a `campus_id`.
+Financial data: **no route exists**, by design (see `SECURITY_AND_RLS.md`).
 
-## Phase 1 — Ingestion
+## Tenant ERP (`school_id` auto-scoped)
 
-| Method | Path | Role | Description |
+| Method | Path | Roles | Description |
 |---|---|---|---|
-| `POST` | `/auth/login` | none | Obtain JWT |
-| `GET` | `/auth/me` | any | Token introspection |
-| `POST` | `/ingestion/validate` | clerk/dean | Real-time format validation only |
-| `POST` | `/ingestion` | clerk/dean | Validate + persist a batch |
-| `POST` | `/ingestion/attendance` | clerk/dean | Store single attendance row |
-| `POST` | `/ingestion/grades` | clerk/dean | Upsert exam/grade row |
+| GET | `/api/v1/school/overview` | school | Counts + today's submission/alarm status |
+| GET/POST | `/api/v1/school/classes` | mgr, tch | Class 1–12 + streams |
+| GET/POST | `/api/v1/school/subjects` | mgr, tch | Subjects per class level |
+| GET | `/api/v1/school/academic-years` | school | Year registry |
+| GET/POST | `/api/v1/school/students` | school | Registry; registration auto-issues `STU-YYYY-XY123` |
+| GET/POST | `/api/v1/school/attendance` | mgr, tch | Bulk upsert per-student daily statuses |
+| POST | `/api/v1/school/attendance/submit` | mgr, tch | Seal today's roster (12:00 PM deadline) |
+| GET/POST | `/api/v1/school/grades` | school | Private mark sheets (drafts) |
+| POST | `/api/v1/school/grades/publish` | **school_manager** | 📤 Publish Exam Marks to State (immutable) |
+| GET | `/api/v1/school/exam-events` | school | Own publication history |
 
-## Phase 2 — Audit & Lock
+## 🔒 Private finance group (`/api/v1/school/finance/` — school_manager only)
 
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `POST` | `/locks` | dean | Sign + freeze a record (Ed25519) |
-| `GET` | `/locks` | dean | List campus locks |
-| `POST` | `/locks/{lock_id}/unlock` | state_admin/system | State counter-signature unlock |
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/school/finance/summary` | Billed / collected / outstanding revenue totals |
+| GET/POST | `/api/v1/school/finance/tuition-rates` | Base tuition per class level |
+| GET/POST | `/api/v1/school/finance/invoices` | Student ledger |
+| POST | `/api/v1/school/finance/invoices/{id}/payments` | Record a payment transaction |
+| GET | `/api/v1/school/finance/student-profiles` | Per-student transaction profiles (billed, collected, balance, last payment) |
 
-## Phase 2/3 — Student & Teacher Data
+State tokens receive `403 🚨 FIREWALL VIOLATION …` and the attempt is logged.
 
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `POST` | `/students` | clerk/dean | Register student (NE-SID generated) |
-| `GET` | `/students` | clerk/dean | List campus students |
-| `GET` | `/students/{id}` | clerk/dean | Get student |
-| `GET` | `/students/{id}/mobility` | clerk/dean | Browsing history tree |
-| `POST` | `/students/{id}/mobility` | dean/state | Record transfer/clearance wish |
-| `POST` | `/teachers` | clerk/dean | Register teacher (NE-TID generated) |
-| `GET` | `/teachers` | clerk/dean | List campus teachers |
-| `POST` | `/teachers/{id}/certifications` | clerk/dean | Add certification |
-| `POST` | `/teachers/{id}/payroll-profile` | clerk/dean | Link to Civil Service tier |
-| `GET` | `/teachers/{id}/background-log` | clerk/dean | Background audit log |
-| `POST` | `/teachers/{id}/exit` | dean | Exit/transfer record |
-| `POST` | `/teachers/payroll` | clerk/dean | Submit payroll hours |
+## Interface portals (STEP 4)
 
-## Phase 3 — Aggregation
+| Path | Workspace |
+|---|---|
+| `/admin/state` | State Admin Panel — alert map (green/red), global student/guardian search, Class 1–12 benchmarking |
+| `/admin/school` | Private School ERP — attendance roster, exam manager + publish valve, class setup, private billing |
 
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `POST` | `/aggregation/run` | system/aggregator | Run overnight batch |
-| `GET` | `/aggregation/batches` | system/state | Batch audit list |
-| `GET` | `/aggregation/student-registry` | system/state | Central student registry |
-| `GET` | `/aggregation/teacher-registry` | system/state | Central teacher registry |
+## Realtime
 
-## Phase 4 — State Control
+| Path | Description |
+|---|---|
+| `WS /ws?token=` | Live event bus: `red_alarm`, `attendance_submitted`, `attendance_recorded`, `exam_published`, `audit_completed` |
 
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `GET` | `/state/kpis` | state_admin/system | Regional KPI rollup |
-| `POST` | `/state/vacancies` | state_admin/system | Staffing vacancy tracker |
-| `POST` | `/state/payouts/payroll` | state_admin/system | Generate payroll funding payouts |
-| `POST` | `/state/payouts/capitation` | state_admin/system | Generate capitation payouts |
-| `POST` | `/state/payouts/{id}/approve` | state_admin/system | Approve payout |
-| `POST` | `/state/payouts/{id}/settle` | state_admin/system | Settle paid payout |
-| `GET` | `/state/payroll-tiers` | state_admin/system | Civil Service grade tiers |
+## Misc
 
-## Example: Locking a payroll record
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/health` | Liveness + platform configuration |
 
-```jsonc
-POST /locks
-{
-  "entity_type": "payroll_entry",
-  "entity_id": "50f7f2b4-...",
-  "payload": {"teacher_id": "c4...", "pay_period": "2026-08", "net": 50000},
-  "signature": "<base64 Ed25519 signature>",
-  "signature_scheme": "ed25519",
-  "key_version": 1
-}
+### Example: trigger the Red Alarm demo
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"inspector@education.gov","password":"State@2026"}' | jq -r .access_token)
+
+curl -s -X POST localhost:8000/api/v1/state/audit/run -H "Authorization: Bearer $TOKEN"
 ```
-
-The signature is over `canonical(LockEnvelope{entity_type, entity_id,
-campus_id, payload_hash, signature_scheme, key_version, locked_by, locked_at})`
-where `payload_hash = SHA256(canonical(pruned_payload))`.

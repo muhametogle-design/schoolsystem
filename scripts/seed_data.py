@@ -1,186 +1,471 @@
-#!/usr/bin/env python
-"""Bootstrap data for local NE-EMIS development (dev only).
+"""STEP 5 — COMPREHENSIVE SEEDING PIPELINE.
 
-Creates:
-  * a state campus and a demo secondary campus
-  * demo users (clerk/dean/state_admin/aggregator)
-  * a dean manager (NE-MID) with a generated Ed25519 verification key
-  * civil service grade tiers 1..17
-  * the 2025/2026 academic year and terms
+Automated mock seed data so every analytics panel functions immediately:
 
-Run with:
-  export DATABASE_URL=postgresql+psycopg2://neemis:neemis@localhost:5432/neemis
-  python scripts/seed_data.py
+  * registers 3 mock private schools (all Active),
+  * class tracks spanning Class 1 -> Class 12 for each school,
+  * mock student tracking profiles with unique auto-generated National IDs
+    (STU-YYYY-XY123) and guardian phone/email records,
+  * realistic sample attendance HISTORIES for the past school days with
+    submitted daily logs (plus one historical RED ALARM breach day), and
+  * published examination grades carrying exam_submission_events tokens.
+
+Run standalone:  python -m scripts.seed_data
 """
 
 from __future__ import annotations
 
-import pathlib
-import sys
-import uuid
-from datetime import date
+import datetime as dt
+import random
 
-# Make `app` importable when the script is run directly from scripts/.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
-from cryptography.hazmat.primitives import serialization
-from sqlalchemy import select
-
-from app.core.crypto_lock import generate_keypair, public_key_pem
-from app.core.db import get_engine, get_sessionmaker, set_session_tenancy
 from app.core.security import hash_password
-from app.models.academics import Term
-from app.models.identity import AppUser, Campus, Manager
-from app.models.registry import AcademicYear
-from app.models.teachers import CivilServiceGrade
+from app.models import (
+    AcademicYear,
+    CommunicationLog,
+    DailySubmissionLog,
+    ExamSubmissionEvent,
+    LiveAttendance,
+    PaymentTransaction,
+    PrivateSchool,
+    SchoolClass,
+    Student,
+    StudentGrade,
+    StudentInvoice,
+    Subject,
+    TuitionRate,
+    User,
+)
+from app.services.student_id import generate_unique_national_student_id
 
-DEMO_PASSWORD = "ChangeMe#2026"
+rng = random.Random(2026)
+
+FIRST_NAMES = [
+    "Amina", "Mohamed", "Fatima", "Ahmed", "Zainab", "Yusuf", "Hodan", "Ali",
+    "Sagal", "Abdisalam", "Ifrah", "Liban", "Muna", "Guled", "Deqa", "Khadar",
+    "Ayaan", "Bashir", "Fadumo", "Warsame", "Naima", "Omar", "Hani", "Jama",
+]
+LAST_NAMES = [
+    "Farah", "Ali", "Hassan", "Abdi", "Yusuf", "Adan", "Ibrahim", "Osman",
+    "Mohamed", "Nur", "Warsame", "Diriye", "Gedi", "Hersi", "Jama", "Kahin",
+]
+GUARDIAN_REL = ["Mother", "Father", "Uncle", "Aunt", "Grandmother", "Grandfather"]
+CLASS_TRACKS = [f"Class {n}" for n in range(1, 13)]  # Class 1 -> Class 12
+PUBLISHED_EXAM = "End of Term 1"
+DRAFT_EXAM = "Mid-Term 1"
+SUBJECT_MENU = [
+    ("MATH", "Mathematics"),
+    ("ENG", "English Language"),
+    ("SCI", "Integrated Science"),
+    ("SST", "Social Studies"),
+]
+
+# What each school has released through the Exam Data Release Valve. Every
+# class level carries published marks so the benchmarking index is populated
+# across Class 1-12; Social Studies stays in private draft everywhere.
+PUBLISH_PLAN = {
+    "MATH": CLASS_TRACKS,
+    "ENG": CLASS_TRACKS,
+    "SCI": ["Class 6", "Class 7", "Class 8", "Class 9"],
+    "SST": [],  # never published — demonstrates the release valve
+}
+
+# Historical compliance breaches (indexes into the 10-day history window):
+# a school that misses several deadlines looks far more realistic than one
+# perfect estate with a single breach.
+BREACH_HISTORY = {
+    "Horizon Preparatory School": [0, 2, 5],   # 3 missed rosters
+    "Crescent International School": [3],      # 1 missed roster
+}
+
+SCHOOLS = [
+    {
+        "state_license_number": "SOL/PS/2026/001",
+        "school_name": "Greenfield Academy",
+        "proprietor_name": "Halima Farah",
+        "contact_phone": "+252-63-400-1101",
+        "contact_email": "office@greenfield.edu",
+        "physical_address": "Masalaha Quarter, Laascaanood",
+        "streams": ["A"],
+        "submitted_today": ("09:42", True),
+    },
+    {
+        "state_license_number": "SOL/PS/2026/002",
+        "school_name": "Horizon Preparatory School",
+        "proprietor_name": "Abdisalam Nur",
+        "contact_phone": "+252-63-400-1102",
+        "contact_email": "office@horizon.edu",
+        "physical_address": "Boameh Street, Laascaanood",
+        "streams": ["A"],
+        "submitted_today": None,        # ← today's roster missing => 15:00 RED ALARM
+    },
+    {
+        "state_license_number": "SOL/PS/2026/003",
+        "school_name": "Crescent International School",
+        "proprietor_name": "Deqa Hersi",
+        "contact_phone": "+252-63-400-1103",
+        "contact_email": "office@crescent.edu",
+        "physical_address": "Airport Road, Laascaanood",
+        "streams": ["A"],
+        "submitted_today": ("11:17", True),
+    },
+]
 
 
-def main() -> None:
-    factory = get_sessionmaker()
-    with factory() as session:
-        # The seed runs as the system role so RLS permits creating the root
-        # campus + users; daily runtime roles are applied per request.
-        set_session_tenancy(
-            session,
-            uuid.UUID("00000000-0000-0000-0000-000000000000"),
-            role="system",
+def last_school_days(count: int) -> list[dt.date]:
+    """The most recent `count` weekdays before today."""
+    days: list[dt.date] = []
+    cursor = dt.date.today()
+    while len(days) < count:
+        cursor -= dt.timedelta(days=1)
+        if cursor.weekday() < 5:  # Mon-Fri
+            days.append(cursor)
+    return days  # ordered most-recent-first
+
+
+def seed_if_empty(session: Session) -> bool:
+    if session.execute(select(func.count(PrivateSchool.id))).scalar_one() > 0:
+        return False
+    seed(session)
+    return True
+
+
+def seed(session: Session) -> None:
+    today = dt.date.today()
+    current_year = f"{today.year}-{today.year + 1}"
+    history_days = last_school_days(10)
+
+    academic_year = AcademicYear(
+        label=current_year,
+        start_date=today.replace(month=9, day=1) if today.month < 9 else today,
+        end_date=today.replace(year=today.year + 1, month=7, day=31),
+        is_current=True,
+    )
+    session.add(academic_year)
+    session.flush()
+
+    # ---- State Government super-admin (school_id NULL) ----
+    session.add(
+        User(
+            school_id=None,
+            email="inspector@education.gov",
+            password_hash=hash_password("State@2026"),
+            role="state_inspector",
+            first_name="Amina",
+            last_name="Yusuf",
         )
+    )
 
-        # Civil service grades -----------------------------------------------
-        for tier in range(1, 18):
-            existing = session.scalar(
-                select(CivilServiceGrade).where(CivilServiceGrade.grade_tier == tier)
-            )
-            if existing is None:
+    enroll_year = current_year.split("-")[0]
+
+    for cfg in SCHOOLS:
+        school = PrivateSchool(
+            state_license_number=cfg["state_license_number"],
+            school_name=cfg["school_name"],
+            proprietor_name=cfg["proprietor_name"],
+            contact_phone=cfg["contact_phone"],
+            contact_email=cfg["contact_email"],
+            physical_address=cfg["physical_address"],
+            accreditation_status="Active",
+        )
+        session.add(school)
+        session.flush()
+
+        domain = cfg["contact_email"].split("@")[1]
+        manager = User(
+            school_id=school.id,
+            email=f"manager@{domain}",
+            password_hash=hash_password("School@2026"),
+            role="school_manager",
+            first_name="Ibrahim",
+            last_name=cfg["school_name"].split()[0],
+        )
+        teacher = User(
+            school_id=school.id,
+            email=f"teacher@{domain}",
+            password_hash=hash_password("Teach@2026"),
+            role="teacher",
+            first_name="Hodan",
+            last_name="Adan",
+        )
+        session.add_all([manager, teacher])
+        session.flush()
+
+        # ---- Class tracks: Class 1 -> Class 12 ----
+        classes: dict[str, SchoolClass] = {}
+        for level in CLASS_TRACKS:
+            for stream in cfg["streams"]:
+                klass = SchoolClass(
+                    school_id=school.id,
+                    class_level=level,
+                    class_stream=stream,
+                    room_number=f"R-{level.split()[-1]}{stream}",
+                    class_teacher_id=teacher.id,
+                )
+                session.add(klass)
+                classes[f"{level}-{stream}"] = klass
+        session.flush()
+
+        # ---- Subjects ----
+        subjects: dict[str, Subject] = {}
+        for level in CLASS_TRACKS:
+            for code, name in SUBJECT_MENU:
+                subject = Subject(
+                    school_id=school.id,
+                    subject_code=f"{code}-{level.split()[-1]}",
+                    subject_name=name,
+                    class_level=level,
+                )
+                session.add(subject)
+                subjects[f"{code}-{level}"] = subject
+        session.flush()
+
+        # ---- Student tracking profiles (unique auto-generated National IDs) ----
+        students_by_class: dict[int, list[Student]] = {}
+        for key, klass in classes.items():
+            level_num = int(klass.class_level.split()[-1])
+            roster_size = 6 + (level_num % 4)
+            for i in range(roster_size):
+                first = rng.choice(FIRST_NAMES)
+                last = rng.choice(LAST_NAMES)
+                student = Student(
+                    school_id=school.id,
+                    national_student_id=generate_unique_national_student_id(session, enroll_year),
+                    current_class_id=klass.id,
+                    first_name=first,
+                    last_name=last,
+                    date_of_birth=dt.date(today.year - 6 - level_num, rng.randint(1, 12), rng.randint(1, 28)),
+                    gender=rng.choice(["Male", "Female"]),
+                    guardian_name=f"{rng.choice(FIRST_NAMES)} {last}",
+                    guardian_relationship=rng.choice(GUARDIAN_REL),
+                    guardian_phone=f"+252-63-{rng.randint(4000000, 4199999)}",
+                    guardian_email=f"guardian.{last.lower()}{i}@mail.so",
+                    emergency_contact_phone=f"+252-63-{rng.randint(5000000, 5199999)}",
+                    enrollment_date=today - dt.timedelta(days=rng.randint(30, 400)),
+                    is_active=True,
+                )
+                session.add(student)
+                students_by_class.setdefault(klass.id, []).append(student)
+        session.flush()
+
+        # ---- Published examination grades (all Class 1-12, with token events) ----
+        for level in CLASS_TRACKS:
+            for stream in cfg["streams"]:
+                klass = classes[f"{level}-{stream}"]
+                roster = students_by_class[klass.id]
+                for code, plan_levels in PUBLISH_PLAN.items():
+                    if level not in plan_levels:
+                        continue
+                    subject = subjects[f"{code}-{level}"]
+                    released = 0
+                    for student in roster:
+                        session.add(
+                            StudentGrade(
+                                school_id=school.id,
+                                student_id=student.id,
+                                class_id=klass.id,
+                                subject_id=subject.id,
+                                academic_year_id=academic_year.id,
+                                exam_name=PUBLISHED_EXAM,
+                                numeric_score=round(rng.uniform(42, 98), 2),
+                                is_published=True,
+                                recorded_by=manager.id,
+                            )
+                        )
+                        released += 1
+                    session.add(
+                        ExamSubmissionEvent(
+                            school_id=school.id,
+                            class_id=klass.id,
+                            subject_id=subject.id,
+                            academic_year_id=academic_year.id,
+                            exam_name=PUBLISHED_EXAM,
+                            records_released=released,
+                            published_by=manager.id,
+                            published_at=dt.datetime.now() - dt.timedelta(days=rng.randint(1, 9)),
+                        )
+                    )
+
+        # ---- Private draft marks (never tokenized → invisible to the State) ----
+        draft_key = f"Class 4-{cfg['streams'][0]}"
+        draft_class = classes[draft_key]
+        for student in students_by_class[draft_class.id]:
+            for code in ("SCI", "SST"):
                 session.add(
-                    CivilServiceGrade(
-                        grade_tier=tier,
-                        base_salary_naira=185_000 + (tier * 96_500),
-                        hardship_multiplier=1.0 + (0.05 if tier in (6, 7, 8) else 0),
-                        min_years_service=max(0, tier - 5),
+                    StudentGrade(
+                        school_id=school.id,
+                        student_id=student.id,
+                        class_id=draft_class.id,
+                        subject_id=subjects[f"{code}-Class 4"].id,
+                        academic_year_id=academic_year.id,
+                        exam_name=DRAFT_EXAM,
+                        numeric_score=round(rng.uniform(38, 96), 2),
+                        is_published=False,
+                        recorded_by=teacher.id,
                     )
                 )
-        session.flush()
 
-        # Campuses ------------------------------------------------------------
-        state_campus = _get_or_create_campus(
-            session, "ST", "State Uplift Secondary School", "01", "state_admin"
-        )
-        demo_campus = _get_or_create_campus(
-            session, "DEMO", "Demo Comprehensive College", "02", "campus"
-        )
-        session.commit()
-
-        # Managers / users ----------------------------------------------------
-        _upsert_campus_user(session, "demo.clerk", "clerk", demo_campus.id)
-        _upsert_campus_user(session, "demo.dean", "dean", demo_campus.id)
-        _upsert_campus_user(session, "state.admin", "state_admin", None)
-        _upsert_campus_user(session, "aggregator", "aggregator", None)
-
-        dean_user = session.scalar(
-            select(AppUser).where(AppUser.username == "demo.dean")
-        )
-        manager = session.scalar(
-            select(Manager).where(Manager.user_id == dean_user.id)
-        )
-        if manager is None:
-            private_key, public_key = generate_keypair()
-            manager = Manager(
-                user_id=dean_user.id,
-                campus_id=demo_campus.id,
-                full_name="Demo Dean",
-                designation="Dean of Studies",
-                is_account_holder=True,
-                verification_public_key=public_key_pem(public_key),
-                signature_scheme="ed25519",
-                key_version=1,
-                key_activated_at=date.today(),
-                is_active=True,
-            )
-            # Persist the private key for the local demo signing tool ONLY.
-            key_dir = pathlib.Path("certs")
-            key_dir.mkdir(exist_ok=True)
-            pem = private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
-            (key_dir / "demo_dean_private.pem").write_bytes(pem)
-            session.add(manager)
-            session.flush()
-        if not manager.ne_mid:
-            manager.ne_mid = "NE-MID-" + str(manager.id).replace("-", "")
-        session.commit()
-
-        # Academic year / terms ------------------------------------------------
-        year = session.scalar(
-            select(AcademicYear).where(AcademicYear.label == "2025/2026")
-        )
-        if year is None:
-            year = AcademicYear(
-                label="2025/2026", starts_on=date(2025, 9, 1), ends_on=date(2026, 8, 31)
-            )
-            session.add(year)
-            session.flush()
-        term_labels = ("first", "second", "third")
-        for i, label in enumerate(term_labels):
-            existing = session.scalar(
-                select(Term).where(
-                    Term.academic_year_id == year.id, Term.term_type == label
-                )
-            )
-            if existing is None:
+        # ---- Attendance history (past school days, with realistic breaches) ----
+        breach_days = BREACH_HISTORY.get(cfg["school_name"], [])
+        for idx, day in enumerate(history_days):
+            if idx in breach_days:
+                # Missed roster: no attendance, no submission, RED ALARM at 15:00.
                 session.add(
-                    Term(
-                        academic_year_id=year.id,
-                        term_type=label,
-                        starts_on=date(2025, 9, 1 + i * 110),
-                        ends_on=date(2026, 1 + i * 4, 30 + i * 30),
+                    DailySubmissionLog(
+                        school_id=school.id,
+                        log_date=day,
+                        attendance_submitted=False,
+                        alarm_triggered=True,
+                        alarm_raised_at=dt.datetime.combine(day, dt.time(15, 0)),
                     )
                 )
-        session.commit()
+                session.add(
+                    CommunicationLog(
+                        school_id=school.id,
+                        recipient_phone="STATE_DASHBOARD_ALARM_PIPELINE",
+                        message_type="Red_Alarm",
+                        message_content=(
+                            f"CRITICAL COMPLIANCE BREACH: {cfg['school_name']} has triggered a RED ALARM "
+                            "for failing to submit attendance logs by the 12:00 PM state deadline."
+                        ),
+                        delivery_status="Delivered",
+                        timestamp_sent=dt.datetime.combine(day, dt.time(15, 0)),
+                    )
+                )
+                continue
+            for klass in classes.values():
+                for student in students_by_class[klass.id]:
+                    session.add(
+                        LiveAttendance(
+                            school_id=school.id,
+                            class_id=klass.id,
+                            student_id=student.id,
+                            date=day,
+                            status=rng.choices(["Present", "Absent", "Late"], weights=[90, 6, 4])[0],
+                            recorded_by=teacher.id,
+                        )
+                    )
+            session.add(
+                DailySubmissionLog(
+                    school_id=school.id,
+                    log_date=day,
+                    attendance_submitted=True,
+                    attendance_submitted_at=dt.datetime.combine(day, dt.time(rng.randint(9, 11), rng.randint(0, 59))),
+                    alarm_triggered=False,
+                )
+            )
 
-    print("Seed data created.")
-    print(f"  Demo clerk: demo.clerk / {DEMO_PASSWORD}")
-    print(f"  Demo dean : demo.dean / {DEMO_PASSWORD}")
-    print(f"  State     : state.admin / {DEMO_PASSWORD}")
-    print(f"  Aggregator: aggregator / {DEMO_PASSWORD}")
-    print("  Dean signing key: certs/demo_dean_private.pem (dev only)")
+        # ---- Today's attendance + 12:00 PM submission state ----
+        if cfg["submitted_today"]:
+            for klass in classes.values():
+                for student in students_by_class[klass.id]:
+                    session.add(
+                        LiveAttendance(
+                            school_id=school.id,
+                            class_id=klass.id,
+                            student_id=student.id,
+                            date=today,
+                            status=rng.choices(["Present", "Absent", "Late"], weights=[88, 8, 4])[0],
+                            recorded_by=teacher.id,
+                        )
+                    )
+            hh, mm = (int(x) for x in cfg["submitted_today"][0].split(":"))
+            session.add(
+                DailySubmissionLog(
+                    school_id=school.id,
+                    log_date=today,
+                    attendance_submitted=True,
+                    attendance_submitted_at=dt.datetime.combine(today, dt.time(hh, mm)),
+                    alarm_triggered=False,
+                )
+            )
+        else:
+            # Horizon: attendance entered this morning but the roster was never
+            # submitted — the 15:00 worker will raise today's RED ALARM.
+            first_class = next(iter(classes.values()))
+            for student in students_by_class[first_class.id][:5]:
+                session.add(
+                    LiveAttendance(
+                        school_id=school.id,
+                        class_id=first_class.id,
+                        student_id=student.id,
+                        date=today,
+                        status="Present",
+                        recorded_by=teacher.id,
+                    )
+                )
 
+        # ---- Private financial ledger (firewalled tier) ----
+        for level in CLASS_TRACKS:
+            session.add(
+                TuitionRate(
+                    school_id=school.id,
+                    class_level=level,
+                    base_tuition_amount=round(rng.uniform(60, 180), 2),
+                    billing_cycle="Termly",
+                )
+            )
+        all_students = [s for roster in students_by_class.values() for s in roster]
+        for student in rng.sample(all_students, k=min(12, len(all_students))):
+            amount = round(rng.uniform(120, 420), 2)
+            scenario = rng.choice(["settled", "partial", "outstanding", "overdue"])
+            if scenario == "settled":
+                paid = amount
+                due = today - dt.timedelta(days=rng.randint(1, 15))
+                status = "Settled"
+            elif scenario == "partial":
+                paid = round(amount * rng.choice([0.25, 0.5, 0.75]), 2)
+                due = today + dt.timedelta(days=rng.randint(5, 30))
+                status = "Partially_Paid"
+            elif scenario == "overdue":
+                paid = 0
+                due = today - dt.timedelta(days=rng.randint(3, 25))
+                status = "Overdue"
+            else:
+                paid = 0
+                due = today + dt.timedelta(days=rng.randint(5, 40))
+                status = "Outstanding"
+            description = rng.choice(
+                [
+                    f"Term 1 tuition — {student.first_name} {student.last_name}",
+                    f"Term 1 tuition (installment 2) — {student.first_name} {student.last_name}",
+                    f"Transport & meals — {student.first_name} {student.last_name}",
+                ]
+            )
+            invoice = StudentInvoice(
+                school_id=school.id,
+                student_id=student.id,
+                academic_year_id=academic_year.id,
+                description=description,
+                amount_due=amount,
+                amount_paid=paid,
+                due_date=due,
+                status=status,
+            )
+            session.add(invoice)
+            session.flush()
+            if paid > 0:
+                session.add(
+                    PaymentTransaction(
+                        school_id=school.id,
+                        invoice_id=invoice.id,
+                        amount=paid,
+                        payment_method=rng.choice(["Cash", "Mobile_Money", "Bank_Transfer", "Card", "Card"]),
+                        reference_number=f"PAY-{invoice.id:05d}",
+                        paid_at=dt.datetime.now() - dt.timedelta(days=rng.randint(1, 20)),
+                        received_by=manager.id,
+                    )
+                )
 
-def _get_or_create_campus(session, code, name, state_code, mode):
-    campus = session.scalar(select(Campus).where(Campus.campus_code == code))
-    if campus is None:
-        campus = Campus(
-            campus_code=code,
-            campus_type="secondary" if mode == "campus" else "tertiary",
-            name=name,
-            state_code=state_code,
-            region="Demo Region",
-            is_active=True,
-        )
-        session.add(campus)
-        session.flush()
-    return campus
-
-
-def _upsert_campus_user(session, username, role, campus_id):
-    user = session.scalar(select(AppUser).where(AppUser.username == username))
-    if user is None:
-        user = AppUser(
-            username=username,
-            email=f"{username}@ne-emis.local",
-            role=role,
-            campus_id=campus_id,
-            password_hash=hash_password(DEMO_PASSWORD),
-            is_active=True,
-        )
-        session.add(user)
-        session.flush()
-    return user
+    session.commit()
 
 
 if __name__ == "__main__":
-    main()
+    from app.core.db import SessionLocal, init_db
+
+    init_db()
+    with SessionLocal() as session:
+        created = seed_if_empty(session)
+        print("Seeded demo data." if created else "Database already populated — skipped.")
