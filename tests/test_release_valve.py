@@ -12,11 +12,6 @@ def _horizon_school_id() -> int:
         return db.query(PrivateSchool).filter_by(school_name="Horizon Preparatory School").one().id
 
 
-def _analytics_for_horizon(client, auth_headers):
-    sid = _horizon_school_id()
-    rows = client.get(f"/api/v1/state/analytics/grades?school_id={sid}", headers=auth_headers).json()["rows"]
-    return rows
-
 
 def _draft_scope(client, horizon_manager_headers):
     classes = client.get("/api/v1/school/classes", headers=horizon_manager_headers).json()["classes"]
@@ -34,11 +29,21 @@ def _draft_scope(client, horizon_manager_headers):
     raise AssertionError("No teachable scope found for Horizon")
 
 
+def _analytics_rows_for_scope(client, auth_headers, school_id, class_level, subject_name):
+    rows = client.get(
+        f"/api/v1/state/analytics/grades?school_id={school_id}", headers=auth_headers
+    ).json()["rows"]
+    return [r for r in rows if r["class_level"] == class_level and r["subject_name"] == subject_name]
+
+
 def test_drafts_are_invisible_to_state_analytics(client, auth_headers, horizon_manager_headers):
     c, subject, year_id, roster = _draft_scope(client, horizon_manager_headers)
     exam = "Valve Test Opener"
+    school_id = _horizon_school_id()
 
-    # Teacher/school saves private draft marks
+    before = _analytics_rows_for_scope(client, auth_headers, school_id, c["class_level"], subject["subject_name"])
+
+    # Teacher/school saves private draft marks under a new exam name
     res = client.post(
         "/api/v1/school/grades",
         headers=horizon_manager_headers,
@@ -52,9 +57,9 @@ def test_drafts_are_invisible_to_state_analytics(client, auth_headers, horizon_m
     )
     assert res.status_code == 200
 
-    # State analytics must not include the unpublished exam
-    rows = [r for r in _analytics_for_horizon(client, auth_headers) if r["subject_name"] == subject["subject_name"]]
-    assert all(r["class_level"] != c["class_level"] for r in rows), "Draft marks leaked into state analytics"
+    # State analytics for this scope must be unchanged by the draft
+    after = _analytics_rows_for_scope(client, auth_headers, school_id, c["class_level"], subject["subject_name"])
+    assert after == before, "Draft marks leaked into state analytics"
 
 
 def test_publish_releases_data_and_creates_immutable_event(
@@ -62,6 +67,10 @@ def test_publish_releases_data_and_creates_immutable_event(
 ):
     c, subject, year_id, roster = _draft_scope(client, horizon_manager_headers)
     exam = "Valve Test Opener"
+    school_id = _horizon_school_id()
+
+    before = _analytics_rows_for_scope(client, auth_headers, school_id, c["class_level"], subject["subject_name"])
+    before_count = before[0]["total_marked_records"] if before else 0
 
     res = client.post(
         "/api/v1/school/grades/publish",
@@ -77,12 +86,10 @@ def test_publish_releases_data_and_creates_immutable_event(
     body = res.json()
     assert body["records_released"] == len(roster)
 
-    # State analytics now include the released scope
-    rows = _analytics_for_horizon(client, auth_headers)
-    match = [r for r in rows if r["class_level"] == c["class_level"] and r["subject_name"] == subject["subject_name"]]
-    assert match, "Published marks did not appear in state analytics"
-    assert match[0]["total_marked_records"] == len(roster)
-    assert match[0]["structural_average_mark"] == 77.5
+    # State analytics now aggregate the released records into the scope
+    after = _analytics_rows_for_scope(client, auth_headers, school_id, c["class_level"], subject["subject_name"])
+    assert after, "Published marks did not appear in state analytics"
+    assert after[0]["total_marked_records"] == before_count + len(roster)
 
     with SessionLocal() as db:
         event = (

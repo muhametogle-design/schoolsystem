@@ -62,6 +62,24 @@ SUBJECT_MENU = [
     ("SST", "Social Studies"),
 ]
 
+# What each school has released through the Exam Data Release Valve. Every
+# class level carries published marks so the benchmarking index is populated
+# across Class 1-12; Social Studies stays in private draft everywhere.
+PUBLISH_PLAN = {
+    "MATH": CLASS_TRACKS,
+    "ENG": CLASS_TRACKS,
+    "SCI": ["Class 6", "Class 7", "Class 8", "Class 9"],
+    "SST": [],  # never published — demonstrates the release valve
+}
+
+# Historical compliance breaches (indexes into the 10-day history window):
+# a school that misses several deadlines looks far more realistic than one
+# perfect estate with a single breach.
+BREACH_HISTORY = {
+    "Horizon Preparatory School": [0, 2, 5],   # 3 missed rosters
+    "Crescent International School": [3],      # 1 missed roster
+}
+
 SCHOOLS = [
     {
         "state_license_number": "SOL/PS/2026/001",
@@ -72,7 +90,6 @@ SCHOOLS = [
         "physical_address": "Masalaha Quarter, Laascaanood",
         "streams": ["A"],
         "submitted_today": ("09:42", True),
-        "publishes": ("MATH", "ENG"),   # subjects released for Class 5-8
     },
     {
         "state_license_number": "SOL/PS/2026/002",
@@ -83,7 +100,6 @@ SCHOOLS = [
         "physical_address": "Boameh Street, Laascaanood",
         "streams": ["A"],
         "submitted_today": None,        # ← today's roster missing => 15:00 RED ALARM
-        "publishes": ("MATH",),
     },
     {
         "state_license_number": "SOL/PS/2026/003",
@@ -94,7 +110,6 @@ SCHOOLS = [
         "physical_address": "Airport Road, Laascaanood",
         "streams": ["A"],
         "submitted_today": ("11:17", True),
-        "publishes": ("MATH", "ENG"),
     },
 ]
 
@@ -121,7 +136,6 @@ def seed(session: Session) -> None:
     today = dt.date.today()
     current_year = f"{today.year}-{today.year + 1}"
     history_days = last_school_days(10)
-    breach_day = history_days[0]  # Horizon's historical RED ALARM day
 
     academic_year = AcademicYear(
         label=current_year,
@@ -236,12 +250,14 @@ def seed(session: Session) -> None:
                 students_by_class.setdefault(klass.id, []).append(student)
         session.flush()
 
-        # ---- Published examination grades (Class 5-8, with token events) ----
-        for level in ("Class 5", "Class 6", "Class 7", "Class 8"):
+        # ---- Published examination grades (all Class 1-12, with token events) ----
+        for level in CLASS_TRACKS:
             for stream in cfg["streams"]:
                 klass = classes[f"{level}-{stream}"]
                 roster = students_by_class[klass.id]
-                for code in cfg["publishes"]:
+                for code, plan_levels in PUBLISH_PLAN.items():
+                    if level not in plan_levels:
+                        continue
                     subject = subjects[f"{code}-{level}"]
                     released = 0
                     for student in roster:
@@ -291,10 +307,34 @@ def seed(session: Session) -> None:
                     )
                 )
 
-        # ---- Attendance history (past school days, all submitted on time) ----
-        for day in history_days:
-            if cfg["school_name"] == "Horizon Preparatory School" and day == breach_day:
-                continue  # Horizon's historical breach day — no roster, alarm below
+        # ---- Attendance history (past school days, with realistic breaches) ----
+        breach_days = BREACH_HISTORY.get(cfg["school_name"], [])
+        for idx, day in enumerate(history_days):
+            if idx in breach_days:
+                # Missed roster: no attendance, no submission, RED ALARM at 15:00.
+                session.add(
+                    DailySubmissionLog(
+                        school_id=school.id,
+                        log_date=day,
+                        attendance_submitted=False,
+                        alarm_triggered=True,
+                        alarm_raised_at=dt.datetime.combine(day, dt.time(15, 0)),
+                    )
+                )
+                session.add(
+                    CommunicationLog(
+                        school_id=school.id,
+                        recipient_phone="STATE_DASHBOARD_ALARM_PIPELINE",
+                        message_type="Red_Alarm",
+                        message_content=(
+                            f"CRITICAL COMPLIANCE BREACH: {cfg['school_name']} has triggered a RED ALARM "
+                            "for failing to submit attendance logs by the 12:00 PM state deadline."
+                        ),
+                        delivery_status="Delivered",
+                        timestamp_sent=dt.datetime.combine(day, dt.time(15, 0)),
+                    )
+                )
+                continue
             for klass in classes.values():
                 for student in students_by_class[klass.id]:
                     session.add(
@@ -368,18 +408,40 @@ def seed(session: Session) -> None:
                 )
             )
         all_students = [s for roster in students_by_class.values() for s in roster]
-        for student in rng.sample(all_students, k=min(8, len(all_students))):
+        for student in rng.sample(all_students, k=min(12, len(all_students))):
             amount = round(rng.uniform(120, 420), 2)
-            paid = rng.choice([0, amount * 0.5, amount])
-            status = "Settled" if paid >= amount else ("Partially_Paid" if paid > 0 else "Outstanding")
+            scenario = rng.choice(["settled", "partial", "outstanding", "overdue"])
+            if scenario == "settled":
+                paid = amount
+                due = today - dt.timedelta(days=rng.randint(1, 15))
+                status = "Settled"
+            elif scenario == "partial":
+                paid = round(amount * rng.choice([0.25, 0.5, 0.75]), 2)
+                due = today + dt.timedelta(days=rng.randint(5, 30))
+                status = "Partially_Paid"
+            elif scenario == "overdue":
+                paid = 0
+                due = today - dt.timedelta(days=rng.randint(3, 25))
+                status = "Overdue"
+            else:
+                paid = 0
+                due = today + dt.timedelta(days=rng.randint(5, 40))
+                status = "Outstanding"
+            description = rng.choice(
+                [
+                    f"Term 1 tuition — {student.first_name} {student.last_name}",
+                    f"Term 1 tuition (installment 2) — {student.first_name} {student.last_name}",
+                    f"Transport & meals — {student.first_name} {student.last_name}",
+                ]
+            )
             invoice = StudentInvoice(
                 school_id=school.id,
                 student_id=student.id,
                 academic_year_id=academic_year.id,
-                description=f"Term 1 tuition — {student.first_name} {student.last_name}",
+                description=description,
                 amount_due=amount,
-                amount_paid=round(paid, 2),
-                due_date=today + dt.timedelta(days=rng.randint(5, 40)),
+                amount_paid=paid,
+                due_date=due,
                 status=status,
             )
             session.add(invoice)
@@ -389,41 +451,14 @@ def seed(session: Session) -> None:
                     PaymentTransaction(
                         school_id=school.id,
                         invoice_id=invoice.id,
-                        amount=round(paid, 2),
-                        payment_method=rng.choice(["Cash", "Mobile_Money", "Bank_Transfer"]),
+                        amount=paid,
+                        payment_method=rng.choice(["Cash", "Mobile_Money", "Bank_Transfer", "Card", "Card"]),
                         reference_number=f"PAY-{invoice.id:05d}",
                         paid_at=dt.datetime.now() - dt.timedelta(days=rng.randint(1, 20)),
                         received_by=manager.id,
                     )
                 )
 
-    # ---- Horizon's historical RED ALARM breach (log + communication gateway) ----
-    horizon = (
-        session.execute(select(PrivateSchool).where(PrivateSchool.school_name == "Horizon Preparatory School"))
-        .scalar_one()
-    )
-    session.add(
-        DailySubmissionLog(
-            school_id=horizon.id,
-            log_date=breach_day,
-            attendance_submitted=False,
-            alarm_triggered=True,
-            alarm_raised_at=dt.datetime.combine(breach_day, dt.time(15, 0)),
-        )
-    )
-    session.add(
-        CommunicationLog(
-            school_id=horizon.id,
-            recipient_phone="STATE_DASHBOARD_ALARM_PIPELINE",
-            message_type="Red_Alarm",
-            message_content=(
-                "CRITICAL COMPLIANCE BREACH: Horizon Preparatory School has triggered a RED ALARM "
-                "for failing to submit attendance logs by the 12:00 PM state deadline."
-            ),
-            delivery_status="Delivered",
-            timestamp_sent=dt.datetime.combine(breach_day, dt.time(15, 0)),
-        )
-    )
     session.commit()
 
 
