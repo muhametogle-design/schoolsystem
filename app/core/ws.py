@@ -21,6 +21,12 @@ class ConnectionManager:
         self._lock = asyncio.Lock()
         # socket -> {"user_id", "role", "school_id"}
         self.active: dict[WebSocket, dict] = {}
+        # The main event loop, bound at startup so worker threads (sync
+        # endpoints, cron jobs) can marshal broadcasts onto the loop.
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
 
     async def connect(self, websocket: WebSocket, user: dict) -> None:
         await websocket.accept()
@@ -48,12 +54,18 @@ class ConnectionManager:
             await self.disconnect(socket)
 
     def broadcast_sync(self, event_type: str, payload: dict) -> None:
-        """Schedule a broadcast from synchronous (worker) code running a loop."""
+        """Schedule a broadcast from synchronous code — either an endpoint
+        running on the loop or a worker thread (threads are marshalled onto
+        the loop bound at startup via run_coroutine_threadsafe)."""
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self.broadcast(event_type, payload))
         except RuntimeError:
-            logger.debug("No running event loop; event %s dropped", event_type)
+            loop = self._loop
+            if loop is not None and loop.is_running():
+                asyncio.run_coroutine_threadsafe(self.broadcast(event_type, payload), loop)
+            else:
+                logger.warning("No event loop available; event %s dropped", event_type)
 
 
 manager = ConnectionManager()

@@ -55,6 +55,25 @@ def test_compliance_map_reflects_alarm(client, auth_headers):
     assert body["summary"]["red_alarms"] >= 1
 
 
+def test_red_alarm_is_broadcast_live_over_websockets(client, auth_headers, state_token):
+    """Command-2 regression: a connected State dashboard must receive the
+    red_alarm packet in real time when the audit worker fires (the worker
+    runs in a sync endpoint thread — the bus must marshal onto the loop)."""
+    with client.websocket_connect(f"/ws?token={state_token}") as ws:
+        assert ws.receive_json()["type"] == "connected"
+        res = client.post("/api/v1/state/audit/run", headers=auth_headers)
+        assert res.status_code == 200
+        got_alarm = False
+        for _ in range(5):  # connected / red_alarm / audit_completed
+            msg = ws.receive_json()
+            if msg["type"] == "red_alarm":
+                got_alarm = True
+                assert "RED ALARM" in msg["payload"]["message"] or msg["payload"]["alarm"] is True
+                assert msg["payload"]["school_id"] > 0
+                break
+        assert got_alarm, "red_alarm event never reached the live dashboard socket"
+
+
 def test_late_submission_prevents_future_alarms(client, horizon_manager_headers, auth_headers):
     """Once the school submits (even after the deadline), the next audit stays quiet."""
     # Horizon records + submits today's roster through the ERP API

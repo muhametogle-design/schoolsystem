@@ -36,6 +36,11 @@ async def lifespan(app: FastAPI):
 
     init_db()
 
+    # Bind the main event loop so worker threads can broadcast over /ws.
+    from app.core.ws import manager as _manager
+
+    _manager.bind_loop(asyncio.get_running_loop())
+
     if settings.auto_seed_demo:
         from scripts.seed_data import seed_if_empty
 
