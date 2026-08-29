@@ -39,6 +39,10 @@ const authSlice = createSlice({
   initialState: {
     user: readStoredUser(),
     token: getToken(),
+    // With a stored token we must confirm the session with the server before
+    // choosing a portal — a stale/corrupt localStorage role would otherwise
+    // render the wrong workspace and every call would 403.
+    bootstrapped: !getToken(),
     status: 'idle',
     error: null,
   },
@@ -62,6 +66,7 @@ const authSlice = createSlice({
         state.status = 'authenticated';
         state.user = action.payload;
         state.token = getToken();
+        state.bootstrapped = true;
       })
       .addCase(login.rejected, (state, action) => {
         state.status = 'failed';
@@ -71,10 +76,17 @@ const authSlice = createSlice({
         state.user = null;
         state.token = null;
         state.status = 'idle';
+        state.bootstrapped = true;
       })
       .addCase(fetchMe.fulfilled, (state, action) => {
+        // Server response is authoritative — it corrects any stale local role.
         state.user = action.payload;
+        localStorage.setItem(USER_KEY, JSON.stringify(action.payload));
         state.status = 'authenticated';
+        state.bootstrapped = true;
+      })
+      .addCase(fetchMe.rejected, (state) => {
+        state.bootstrapped = true;
       });
   },
 });

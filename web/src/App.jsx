@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { clearError, selectUser } from './features/auth/authSlice';
+import { clearError, fetchMe, selectUser } from './features/auth/authSlice';
+import { getToken } from './api/client';
 import Login from './pages/Login';
 import Layout from './components/Layout';
 import SchoolDashboard from './pages/SchoolDashboard';
@@ -31,8 +32,14 @@ function StateOnly({ children }) {
 
 export default function App() {
   const user = useSelector(selectUser);
+  const bootstrapped = useSelector((state) => state.auth.bootstrapped);
   const dispatch = useDispatch();
   const navigate = useNavigate();
+
+  // Confirm the stored session with the server before choosing a portal.
+  useEffect(() => {
+    if (getToken()) dispatch(fetchMe());
+  }, [dispatch]);
 
   useEffect(() => {
     const onExpired = () => navigate('/', { replace: true });
@@ -43,6 +50,14 @@ export default function App() {
   useEffect(() => {
     dispatch(clearError());
   }, [dispatch]);
+
+  if (!bootstrapped) {
+    return (
+      <div className="boot">
+        <span className="boot__label">Verifying session…</span>
+      </div>
+    );
+  }
 
   return (
     <Routes>
