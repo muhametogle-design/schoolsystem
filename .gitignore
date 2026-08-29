@@ -36,3 +36,6 @@ build/
 *.sqlite3
 postgres-data/
 data/
+
+# Test artifacts
+tests/*.db
