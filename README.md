@@ -29,7 +29,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Open http://localhost:8000 — the platform auto-creates its schema and seeds
-demo data (4 schools, ~250 students, published + draft exams, billing ledgers).
+demo data via the STEP 5 pipeline (3 schools × Class 1–12 tracks, ~300 students
+with generated STU-IDs, 10 days of attendance history, published + draft exams,
+billing ledgers). Portals: **/admin/state** (State Admin Panel) and
+**/admin/school** (Private School ERP Portal).
 
 ### Production stack (real PostgreSQL 16)
 
@@ -56,7 +59,7 @@ loads the demo estate. API at http://localhost:8000, interactive docs at
 ## 2. The four operational workflow rules
 
 1. **The Attendance Deadline** — schools must submit daily rosters by **12:00 PM**
-   (`POST /api/school/attendance/submit` writes `daily_submission_logs`).
+   (`POST /api/v1/school/attendance/submit` writes `daily_submission_logs`).
 2. **The 3-Hour Red Alarm Engine** — at exactly **15:00** the worker cron
    (`app/services/scheduler.py` → `process_daily_attendance_deadlines`) scans
    today's submissions, UPSERTs `alarm_triggered = true` for every failing
@@ -65,7 +68,7 @@ loads the demo estate. API at http://localhost:8000, interactive docs at
    (`/ws`). It can also be fired manually from the State dashboard.
 3. **The Exam Data Release Valve** — `student_grades.is_published` defaults to
    `FALSE`; drafts are invisible to every State query. Hitting **Publish Exam
-   Marks to State** (`POST /api/school/grades/publish`, managers only) flips the
+   Marks to State** (`POST /api/v1/school/grades/publish`, managers only) flips the
    scope to published **and** appends an immutable
    `exam_submission_events` row. Publication is irreversible (DB trigger +
    API guard).

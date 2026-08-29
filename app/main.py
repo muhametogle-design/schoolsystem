@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import auth, billing, health, school, state, ws
@@ -82,6 +83,17 @@ app.include_router(state.router)
 app.include_router(school.router)
 app.include_router(billing.router)
 app.include_router(ws.router)
+
+
+# ---------------- STEP 4: Interface portal routes ----------------
+# Both workspaces are served by the same SPA, which arms the correct portal
+# from the path + the authenticated role.
+@app.get("/admin/state", include_in_schema=False)
+@app.get("/admin/school", include_in_schema=False)
+@app.get("/admin", include_in_schema=False)
+async def interface_portal() -> FileResponse:
+    return FileResponse(_FRONTEND_DIR / "index.html")
+
 
 if _FRONTEND_DIR.exists():
     app.mount("/", StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")

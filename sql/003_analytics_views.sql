@@ -60,8 +60,9 @@ JOIN school_classes sc ON s.current_class_id = sc.id;
 --            OR last_name ILIKE :user_query_input;
 
 -- ---------------------------------------------------------------------------
--- View C: Class 1-12 Grade Analytics & Benchmarking
---         (Filtered to Published Exams Only — the Exam Data Release Valve)
+-- View C / Query C: State Subject Benchmarking Index
+--   Only scores carrying a matching publication token event inside
+--   exam_submission_events are pulled (the Exam Data Release Valve).
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE VIEW state_grade_analytics AS
 SELECT
@@ -75,7 +76,15 @@ FROM student_grades sg
 JOIN private_schools ps  ON sg.school_id = ps.id
 JOIN school_classes sc   ON sg.class_id = sc.id
 JOIN subjects sub        ON sg.subject_id = sub.id
-WHERE sg.is_published = TRUE
+WHERE EXISTS (
+    SELECT 1
+    FROM exam_submission_events ese
+    WHERE ese.school_id         = sg.school_id
+      AND ese.class_id          = sg.class_id
+      AND ese.subject_id        = sg.subject_id
+      AND ese.academic_year_id  = sg.academic_year_id
+      AND ese.exam_name         = sg.exam_name
+)
 GROUP BY ps.school_name, sc.class_level, sub.subject_name
 ORDER BY ps.school_name, sc.class_level, sub.subject_name;
 

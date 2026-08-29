@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     DailySubmissionLog,
+    ExamSubmissionEvent,
     LiveAttendance,
     PrivateSchool,
     SchoolClass,
@@ -75,7 +76,9 @@ def view_a_state_compliance_map(database_session: Session) -> list[dict]:
 
 
 def view_b_student_lookup(database_session: Session, user_query_input: str) -> list[dict]:
-    """View B: State-Wide Student ID National Lookup Engine (Class 1-12 deep search)."""
+    """Query B: Deep Student Directory Search — ILIKE fuzzy match on last_name,
+    direct match on national_student_id (plus guardian-number search for the
+    State command board bar)."""
     needle = user_query_input.strip()
     if not needle:
         return []
@@ -100,6 +103,7 @@ def view_b_student_lookup(database_session: Session, user_query_input: str) -> l
         .where(
             (Student.national_student_id == needle)
             | Student.last_name.ilike(like_pattern)
+            | Student.guardian_phone.ilike(like_pattern)
         )
         .order_by(PrivateSchool.school_name, SchoolClass.class_level, Student.last_name)
         .limit(200)
@@ -129,12 +133,26 @@ def view_c_grade_analytics(
     school_id: int | None = None,
     class_level: str | None = None,
 ) -> list[dict]:
-    """View C: Class 1-12 Grade Analytics & Benchmarking.
+    """Query C: State Subject Benchmarking Index.
 
-    Filtered to PUBLISHED exams only — the Exam Data Release Valve is applied
-    at the query boundary, so private school drafts are structurally
-    unreachable from the government portal.
+    Averages numeric_score across schools for any target class level
+    (Class 1 - Class 12). The grade table is filtered so only scores carrying
+    a matching publication token event inside exam_submission_events are
+    pulled — drafts and un-tokenized rows are structurally excluded.
     """
+    # Correlated EXISTS: the release-valve token must be present in the log.
+    release_token_exists = (
+        select(1)
+        .where(
+            ExamSubmissionEvent.school_id == StudentGrade.school_id,
+            ExamSubmissionEvent.class_id == StudentGrade.class_id,
+            ExamSubmissionEvent.subject_id == StudentGrade.subject_id,
+            ExamSubmissionEvent.academic_year_id == StudentGrade.academic_year_id,
+            ExamSubmissionEvent.exam_name == StudentGrade.exam_name,
+        )
+        .exists()
+    )
+
     stmt = (
         select(
             PrivateSchool.school_name,
@@ -147,7 +165,7 @@ def view_c_grade_analytics(
         .join(PrivateSchool, StudentGrade.school_id == PrivateSchool.id)
         .join(SchoolClass, StudentGrade.class_id == SchoolClass.id)
         .join(Subject, StudentGrade.subject_id == Subject.id)
-        .where(StudentGrade.is_published == True)  # noqa: E712 — SQL boolean
+        .where(release_token_exists)
         .group_by(PrivateSchool.school_name, SchoolClass.class_level, Subject.subject_name)
         .order_by(PrivateSchool.school_name, SchoolClass.class_level, Subject.subject_name)
     )

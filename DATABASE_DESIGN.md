@@ -56,8 +56,9 @@ feed and invoice ledger hot paths.
 * `state_student_lookup` — **View B**: statewide Class 1–12 deep search joined
   with guardian + emergency contact details (queried by national ID or
   `ILIKE` surname).
-* `state_grade_analytics` — **View C**: per school/class/subject COUNT/AVG/MAX
-  benchmarking, `WHERE is_published = TRUE` (release valve at the query root).
+* `state_grade_analytics` — **Query C**: per school/class/subject COUNT/AVG/MAX
+  benchmarking filtered by a correlated `EXISTS` against `exam_submission_events`
+  — only scores carrying a publication token event are pulled.
 
 The API mirrors all three in dialect-portable SQLAlchemy
 (`app/services/analytics.py`).

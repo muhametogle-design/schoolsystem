@@ -1,10 +1,14 @@
-"""Demo-tier bootstrap data.
+"""STEP 5 — COMPREHENSIVE SEEDING PIPELINE.
 
-Creates three licensed private schools, the state inspector account, tenant
-managers/teachers, Class 1-12 structures, students with generated STU-IDs,
-a mix of PRIVATE draft and PUBLISHED exam marks, today's attendance rosters
-(one school deliberately unsubmitted so the 15:00 Red Alarm demo fires),
-and a private financial ledger for each tenant.
+Automated mock seed data so every analytics panel functions immediately:
+
+  * registers 3 mock private schools (all Active),
+  * class tracks spanning Class 1 -> Class 12 for each school,
+  * mock student tracking profiles with unique auto-generated National IDs
+    (STU-YYYY-XY123) and guardian phone/email records,
+  * realistic sample attendance HISTORIES for the past school days with
+    submitted daily logs (plus one historical RED ALARM breach day), and
+  * published examination grades carrying exam_submission_events tokens.
 
 Run standalone:  python -m scripts.seed_data
 """
@@ -27,7 +31,6 @@ from app.models import (
     PaymentTransaction,
     PrivateSchool,
     SchoolClass,
-    SecurityAuditLog,
     Student,
     StudentGrade,
     StudentInvoice,
@@ -49,7 +52,15 @@ LAST_NAMES = [
     "Mohamed", "Nur", "Warsame", "Diriye", "Gedi", "Hersi", "Jama", "Kahin",
 ]
 GUARDIAN_REL = ["Mother", "Father", "Uncle", "Aunt", "Grandmother", "Grandfather"]
-EXAMS = ["Term 1 Opener", "Mid-Term 1", "End of Term 1"]
+CLASS_TRACKS = [f"Class {n}" for n in range(1, 13)]  # Class 1 -> Class 12
+PUBLISHED_EXAM = "End of Term 1"
+DRAFT_EXAM = "Mid-Term 1"
+SUBJECT_MENU = [
+    ("MATH", "Mathematics"),
+    ("ENG", "English Language"),
+    ("SCI", "Integrated Science"),
+    ("SST", "Social Studies"),
+]
 
 SCHOOLS = [
     {
@@ -59,10 +70,9 @@ SCHOOLS = [
         "contact_phone": "+252-63-400-1101",
         "contact_email": "office@greenfield.edu",
         "physical_address": "Masalaha Quarter, Laascaanood",
-        "levels": [f"Class {n}" for n in range(1, 13)],
         "streams": ["A"],
-        "status": "Active",
         "submitted_today": ("09:42", True),
+        "publishes": ("MATH", "ENG"),   # subjects released for Class 5-8
     },
     {
         "state_license_number": "SOL/PS/2026/002",
@@ -71,10 +81,9 @@ SCHOOLS = [
         "contact_phone": "+252-63-400-1102",
         "contact_email": "office@horizon.edu",
         "physical_address": "Boameh Street, Laascaanood",
-        "levels": ["Class 3", "Class 4", "Class 5", "Class 6", "Class 7", "Class 8", "Class 9"],
-        "streams": ["A", "B"],
-        "status": "Active",
-        "submitted_today": None,  # ← will trigger the 15:00 RED ALARM
+        "streams": ["A"],
+        "submitted_today": None,        # ← today's roster missing => 15:00 RED ALARM
+        "publishes": ("MATH",),
     },
     {
         "state_license_number": "SOL/PS/2026/003",
@@ -83,31 +92,22 @@ SCHOOLS = [
         "contact_phone": "+252-63-400-1103",
         "contact_email": "office@crescent.edu",
         "physical_address": "Airport Road, Laascaanood",
-        "levels": ["Class 1", "Class 2", "Class 3", "Class 4", "Class 5"],
         "streams": ["A"],
-        "status": "Active",
         "submitted_today": ("11:17", True),
-    },
-    {
-        "state_license_number": "SOL/PS/2026/004",
-        "school_name": "Iftin Community School",
-        "proprietor_name": "Said Jama",
-        "contact_phone": "+252-63-400-1104",
-        "contact_email": "office@iftin.edu",
-        "physical_address": "Wadada Hargeisa, Laascaanood",
-        "levels": ["Class 6", "Class 7"],
-        "streams": ["A"],
-        "status": "Probation",  # filtered out of the active compliance map
-        "submitted_today": None,
+        "publishes": ("MATH", "ENG"),
     },
 ]
 
-SUBJECT_MENU = [
-    ("MATH", "Mathematics"),
-    ("ENG", "English Language"),
-    ("SCI", "Integrated Science"),
-    ("SST", "Social Studies"),
-]
+
+def last_school_days(count: int) -> list[dt.date]:
+    """The most recent `count` weekdays before today."""
+    days: list[dt.date] = []
+    cursor = dt.date.today()
+    while len(days) < count:
+        cursor -= dt.timedelta(days=1)
+        if cursor.weekday() < 5:  # Mon-Fri
+            days.append(cursor)
+    return days  # ordered most-recent-first
 
 
 def seed_if_empty(session: Session) -> bool:
@@ -120,6 +120,8 @@ def seed_if_empty(session: Session) -> bool:
 def seed(session: Session) -> None:
     today = dt.date.today()
     current_year = f"{today.year}-{today.year + 1}"
+    history_days = last_school_days(10)
+    breach_day = history_days[0]  # Horizon's historical RED ALARM day
 
     academic_year = AcademicYear(
         label=current_year,
@@ -131,18 +133,18 @@ def seed(session: Session) -> None:
     session.flush()
 
     # ---- State Government super-admin (school_id NULL) ----
-    state_user = User(
-        school_id=None,
-        email="inspector@education.gov",
-        password_hash=hash_password("State@2026"),
-        role="state_inspector",
-        first_name="Amina",
-        last_name="Yusuf",
+    session.add(
+        User(
+            school_id=None,
+            email="inspector@education.gov",
+            password_hash=hash_password("State@2026"),
+            role="state_inspector",
+            first_name="Amina",
+            last_name="Yusuf",
+        )
     )
-    session.add(state_user)
 
     enroll_year = current_year.split("-")[0]
-    school_rows: dict[str, PrivateSchool] = {}
 
     for cfg in SCHOOLS:
         school = PrivateSchool(
@@ -152,11 +154,10 @@ def seed(session: Session) -> None:
             contact_phone=cfg["contact_phone"],
             contact_email=cfg["contact_email"],
             physical_address=cfg["physical_address"],
-            accreditation_status=cfg["status"],
+            accreditation_status="Active",
         )
         session.add(school)
         session.flush()
-        school_rows[cfg["school_name"]] = school
 
         domain = cfg["contact_email"].split("@")[1]
         manager = User(
@@ -178,9 +179,9 @@ def seed(session: Session) -> None:
         session.add_all([manager, teacher])
         session.flush()
 
-        # ---- Classes 1-12 ----
+        # ---- Class tracks: Class 1 -> Class 12 ----
         classes: dict[str, SchoolClass] = {}
-        for level in cfg["levels"]:
+        for level in CLASS_TRACKS:
             for stream in cfg["streams"]:
                 klass = SchoolClass(
                     school_id=school.id,
@@ -195,7 +196,7 @@ def seed(session: Session) -> None:
 
         # ---- Subjects ----
         subjects: dict[str, Subject] = {}
-        for level in cfg["levels"]:
+        for level in CLASS_TRACKS:
             for code, name in SUBJECT_MENU:
                 subject = Subject(
                     school_id=school.id,
@@ -207,7 +208,7 @@ def seed(session: Session) -> None:
                 subjects[f"{code}-{level}"] = subject
         session.flush()
 
-        # ---- Students with generated immutable STU-IDs ----
+        # ---- Student tracking profiles (unique auto-generated National IDs) ----
         students_by_class: dict[int, list[Student]] = {}
         for key, klass in classes.items():
             level_num = int(klass.class_level.split()[-1])
@@ -235,30 +236,28 @@ def seed(session: Session) -> None:
                 students_by_class.setdefault(klass.id, []).append(student)
         session.flush()
 
-        # ---- Exam marks: published (Class 5-8 Math+Eng) + private drafts ----
-        publish_levels = {"Class 5", "Class 6", "Class 7", "Class 8"} & set(cfg["levels"])
-        for level in publish_levels:
+        # ---- Published examination grades (Class 5-8, with token events) ----
+        for level in ("Class 5", "Class 6", "Class 7", "Class 8"):
             for stream in cfg["streams"]:
-                key = f"{level}-{stream}"
-                klass = classes[key]
+                klass = classes[f"{level}-{stream}"]
                 roster = students_by_class[klass.id]
-                for code in ("MATH", "ENG"):
+                for code in cfg["publishes"]:
                     subject = subjects[f"{code}-{level}"]
-                    exam_name = "End of Term 1"
                     released = 0
                     for student in roster:
-                        grade = StudentGrade(
-                            school_id=school.id,
-                            student_id=student.id,
-                            class_id=klass.id,
-                            subject_id=subject.id,
-                            academic_year_id=academic_year.id,
-                            exam_name=exam_name,
-                            numeric_score=round(rng.uniform(42, 98), 2),
-                            is_published=True,
-                            recorded_by=manager.id,
+                        session.add(
+                            StudentGrade(
+                                school_id=school.id,
+                                student_id=student.id,
+                                class_id=klass.id,
+                                subject_id=subject.id,
+                                academic_year_id=academic_year.id,
+                                exam_name=PUBLISHED_EXAM,
+                                numeric_score=round(rng.uniform(42, 98), 2),
+                                is_published=True,
+                                recorded_by=manager.id,
+                            )
                         )
-                        session.add(grade)
                         released += 1
                     session.add(
                         ExamSubmissionEvent(
@@ -266,36 +265,60 @@ def seed(session: Session) -> None:
                             class_id=klass.id,
                             subject_id=subject.id,
                             academic_year_id=academic_year.id,
-                            exam_name=exam_name,
+                            exam_name=PUBLISHED_EXAM,
                             records_released=released,
                             published_by=manager.id,
                             published_at=dt.datetime.now() - dt.timedelta(days=rng.randint(1, 9)),
                         )
                     )
 
-        # Private drafts (never published): every school, one class, Science + SST
-        draft_level = cfg["levels"][min(2, len(cfg["levels"]) - 1)]
-        for stream in cfg["streams"]:
-            key = f"{draft_level}-{stream}"
-            klass = classes[key]
-            for student in students_by_class[klass.id]:
-                for code in ("SCI", "SST"):
+        # ---- Private draft marks (never tokenized → invisible to the State) ----
+        draft_key = f"Class 4-{cfg['streams'][0]}"
+        draft_class = classes[draft_key]
+        for student in students_by_class[draft_class.id]:
+            for code in ("SCI", "SST"):
+                session.add(
+                    StudentGrade(
+                        school_id=school.id,
+                        student_id=student.id,
+                        class_id=draft_class.id,
+                        subject_id=subjects[f"{code}-Class 4"].id,
+                        academic_year_id=academic_year.id,
+                        exam_name=DRAFT_EXAM,
+                        numeric_score=round(rng.uniform(38, 96), 2),
+                        is_published=False,
+                        recorded_by=teacher.id,
+                    )
+                )
+
+        # ---- Attendance history (past school days, all submitted on time) ----
+        for day in history_days:
+            if cfg["school_name"] == "Horizon Preparatory School" and day == breach_day:
+                continue  # Horizon's historical breach day — no roster, alarm below
+            for klass in classes.values():
+                for student in students_by_class[klass.id]:
                     session.add(
-                        StudentGrade(
+                        LiveAttendance(
                             school_id=school.id,
-                            student_id=student.id,
                             class_id=klass.id,
-                            subject_id=subjects[f"{code}-{draft_level}"].id,
-                            academic_year_id=academic_year.id,
-                            exam_name="Mid-Term 1",
-                            numeric_score=round(rng.uniform(38, 96), 2),
-                            is_published=False,
+                            student_id=student.id,
+                            date=day,
+                            status=rng.choices(["Present", "Absent", "Late"], weights=[90, 6, 4])[0],
                             recorded_by=teacher.id,
                         )
                     )
+            session.add(
+                DailySubmissionLog(
+                    school_id=school.id,
+                    log_date=day,
+                    attendance_submitted=True,
+                    attendance_submitted_at=dt.datetime.combine(day, dt.time(rng.randint(9, 11), rng.randint(0, 59))),
+                    alarm_triggered=False,
+                )
+            )
 
-        # ---- Today's attendance + the 12:00 PM submission state ----
-        if cfg["status"] == "Active" and cfg["submitted_today"]:
+        # ---- Today's attendance + 12:00 PM submission state ----
+        if cfg["submitted_today"]:
             for klass in classes.values():
                 for student in students_by_class[klass.id]:
                     session.add(
@@ -318,9 +341,9 @@ def seed(session: Session) -> None:
                     alarm_triggered=False,
                 )
             )
-        elif cfg["status"] == "Active":
-            # Horizon: attendance entered this morning but roster NOT submitted
-            # → the 15:00 worker will raise the RED ALARM on this school.
+        else:
+            # Horizon: attendance entered this morning but the roster was never
+            # submitted — the 15:00 worker will raise today's RED ALARM.
             first_class = next(iter(classes.values()))
             for student in students_by_class[first_class.id][:5]:
                 session.add(
@@ -335,7 +358,7 @@ def seed(session: Session) -> None:
                 )
 
         # ---- Private financial ledger (firewalled tier) ----
-        for level in cfg["levels"]:
+        for level in CLASS_TRACKS:
             session.add(
                 TuitionRate(
                     school_id=school.id,
@@ -348,9 +371,7 @@ def seed(session: Session) -> None:
         for student in rng.sample(all_students, k=min(8, len(all_students))):
             amount = round(rng.uniform(120, 420), 2)
             paid = rng.choice([0, amount * 0.5, amount])
-            status = (
-                "Settled" if paid >= amount else ("Partially_Paid" if paid > 0 else "Outstanding")
-            )
+            status = "Settled" if paid >= amount else ("Partially_Paid" if paid > 0 else "Outstanding")
             invoice = StudentInvoice(
                 school_id=school.id,
                 student_id=student.id,
@@ -376,8 +397,20 @@ def seed(session: Session) -> None:
                     )
                 )
 
-    # A historical red alarm from yesterday for the feed
-    horizon = school_rows["Horizon Preparatory School"]
+    # ---- Horizon's historical RED ALARM breach (log + communication gateway) ----
+    horizon = (
+        session.execute(select(PrivateSchool).where(PrivateSchool.school_name == "Horizon Preparatory School"))
+        .scalar_one()
+    )
+    session.add(
+        DailySubmissionLog(
+            school_id=horizon.id,
+            log_date=breach_day,
+            attendance_submitted=False,
+            alarm_triggered=True,
+            alarm_raised_at=dt.datetime.combine(breach_day, dt.time(15, 0)),
+        )
+    )
     session.add(
         CommunicationLog(
             school_id=horizon.id,
@@ -388,13 +421,7 @@ def seed(session: Session) -> None:
                 "for failing to submit attendance logs by the 12:00 PM state deadline."
             ),
             delivery_status="Delivered",
-            timestamp_sent=dt.datetime.now() - dt.timedelta(days=1),
-        )
-    )
-    session.add(
-        SecurityAuditLog(
-            user_id=None, role="anonymous", endpoint="/api/school/billing/summary",
-            verdict="BLOCKED", detail="Seed placeholder — firewall active.",
+            timestamp_sent=dt.datetime.combine(breach_day, dt.time(15, 0)),
         )
     )
     session.commit()

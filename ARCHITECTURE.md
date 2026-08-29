@@ -12,9 +12,9 @@
            ▼                          ▼                         ▼
  ┌───────────────────────────────────────────────────────────────────────────┐
  │ FastAPI monolith                                                          │
- │  /api/school/*  tenant ERP   (scoped by user.school_id on EVERY query)    │
- │  /api/school/billing/* 🔒    private financial tier (school_manager only) │
- │  /api/state/*   read-only academics + alarm engine (state_inspector only) │
+ │  /api/v1/school/*  tenant ERP   (scoped by user.school_id on EVERY query)    │
+ │  /api/v1/school/finance/* 🔒    private financial tier (school_manager only) │
+ │  /api/v1/state/*   read-only academics + alarm engine (state_inspector only) │
  │  /ws            live WebSocket bus (red_alarm / exam_published / …)       │
  │                                                                            │
  │  services: Phase-2 worker cron (15:00) · ID generator · publish valve      │
@@ -51,7 +51,7 @@
              └─ COMMIT
 ```
 
-The same function backs `POST /api/state/audit/run` so the dashboard can demo
+The same function backs `POST /api/v1/state/audit/run` so the dashboard can demo
 the escalation instantly.
 
 ## Exam Data Release Valve
@@ -59,14 +59,15 @@ the escalation instantly.
 ```text
  teacher/school → student_grades (is_published = FALSE)   [private draft]
                          │
-        school_manager: POST /api/school/grades/publish
+        school_manager: POST /api/v1/school/grades/publish
                          │  (single transaction)
                          ├─ UPDATE student_grades SET is_published = TRUE
                          ├─ INSERT exam_submission_events  (IMMUTABLE —
                          │       trigger blocks UPDATE/DELETE on PostgreSQL)
                          └─ ws broadcast exam_published
                          ▼
- View C / state analytics aggregate ONLY is_published = TRUE rows
+ View C / state analytics pull ONLY scores carrying a matching token event
+ inside exam_submission_events (correlated EXISTS — Query C)
 ```
 
 ## Technology

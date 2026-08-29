@@ -12,9 +12,9 @@ and student IDs must be immutable.
 
 ### Layer 1 — API routing (`app/api/deps.py`)
 
-* No `/api/state/*` route imports, serializes or queries any financial model —
+* No `/api/v1/state/*` route imports, serializes or queries any financial model —
   the code path does not exist.
-* Every `/api/school/*` route is wrapped by `require_school(...)`: a
+* Every `/api/v1/school/*` route is wrapped by `require_school(...)`: a
   `state_inspector` token receives **403 FIREWALL VIOLATION** and the attempt
   is appended to `security_audit_log` (user, role, endpoint, verdict).
 * Billing routes additionally require `school_manager`.

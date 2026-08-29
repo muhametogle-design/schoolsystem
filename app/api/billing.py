@@ -1,11 +1,14 @@
-"""🔒 PRIVATE FINANCIAL ERP — base tuition rates, billing configurations,
-student ledgers, outstanding balances and transaction payment logs.
+"""🔒 PRIVATE FINANCIAL ERP — `/api/v1/school/finance/` 🔒
 
-CRITICAL FIREWALL RULE: these routes are guarded by `require_school('school_manager')`.
-A state_inspector token is rejected with 403 AND the attempt is recorded in
-security_audit_log. There is no state-facing route, serializer or service that
-can express financial data — and on PostgreSQL the state_readonly role holds
-zero grants on tuition_rates / student_invoices / payment_transactions.
+Base tuition rates, billing configurations, student ledgers, outstanding
+balances, revenue summaries and transaction payment logs.
+
+HARD SECURITY RULE: this path group is guarded by
+`require_school('school_manager')`. A token representing a 'state_inspector'
+that attempts any financial reporting endpoint here is immediately aborted
+with HTTP 403 Forbidden — and the attempt is recorded in security_audit_log.
+On PostgreSQL the state_readonly role additionally holds zero grants on the
+financial tables, which carry explicit DENY-ALL RLS policies.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from app.models import (
 )
 from app.schemas import InvoiceCreate, PaymentCreate, TuitionRateCreate
 
-router = APIRouter(prefix="/api/school/billing", tags=["billing-private 🔒"])
+router = APIRouter(prefix="/api/v1/school/finance", tags=["finance-private 🔒"])
 
 manager_only = require_school("school_manager")
 
@@ -144,6 +147,59 @@ def create_invoice(payload: InvoiceCreate, user: User = Depends(manager_only), d
     db.add(invoice)
     db.commit()
     return {"id": invoice.id, "status": invoice.status}
+
+
+@router.get("/student-profiles")
+def student_transaction_profiles(user: User = Depends(manager_only), db: Session = Depends(get_db)):
+    """Private student transaction profiles — per-learner tuition metrics,
+    revenue collected and last payment instrument."""
+    students = (
+        db.query(Student)
+        .options(joinedload(Student.current_class))
+        .filter_by(school_id=user.school_id, is_active=True)
+        .order_by(Student.last_name, Student.first_name)
+        .all()
+    )
+    invoices = (
+        db.query(StudentInvoice)
+        .options(joinedload(StudentInvoice.payments))
+        .filter_by(school_id=user.school_id)
+        .all()
+    )
+    by_student: dict[int, list[StudentInvoice]] = {}
+    for inv in invoices:
+        by_student.setdefault(inv.student_id, []).append(inv)
+
+    profiles = []
+    for s in students:
+        invs = by_student.get(s.id, [])
+        billed = sum(float(i.amount_due) for i in invs)
+        paid = sum(float(i.amount_paid) for i in invs)
+        payments = sorted(
+            (p for i in invs for p in i.payments),
+            key=lambda p: p.paid_at or dt.datetime.min,
+            reverse=True,
+        )
+        last = payments[0] if payments else None
+        profiles.append(
+            {
+                "student_id": s.id,
+                "national_student_id": s.national_student_id,
+                "student": f"{s.first_name} {s.last_name}",
+                "class_label": (
+                    f"{s.current_class.class_level} {s.current_class.class_stream}"
+                    if s.current_class
+                    else None
+                ),
+                "invoices": len(invs),
+                "total_billed": round(billed, 2),
+                "total_paid": round(paid, 2),
+                "balance": round(billed - paid, 2),
+                "last_payment_at": last.paid_at.isoformat() if last and last.paid_at else None,
+                "last_payment_method": last.payment_method if last else None,
+            }
+        )
+    return {"student_profiles": profiles}
 
 
 @router.post("/invoices/{invoice_id}/payments", status_code=201)

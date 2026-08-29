@@ -24,7 +24,7 @@ from app.services.analytics import (
 )
 from app.services.compliance import process_daily_attendance_deadlines
 
-router = APIRouter(prefix="/api/state", tags=["state-portal"], dependencies=[Depends(require_state)])
+router = APIRouter(prefix="/api/v1/state", tags=["state-portal"], dependencies=[Depends(require_state)])
 
 
 @router.get("/compliance-map")
@@ -57,8 +57,9 @@ def grade_analytics(
     class_level: str | None = Query(default=None, description="e.g. 'Class 7'"),
     db: Session = Depends(get_db),
 ):
-    """View C — Class 1-12 Grade Analytics & Benchmarking (published only)."""
+    """Query C — State Subject Benchmarking Index (release-token filtered)."""
     return {
+        "filtered_to": "exam_submission_events",
         "filtered_to_published_exams": True,
         "rows": view_c_grade_analytics(db, school_id=school_id, class_level=class_level),
     }

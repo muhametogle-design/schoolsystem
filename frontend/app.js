@@ -194,7 +194,24 @@ function enterApp() {
   );
   connectWS();
   const first = nav.find((n) => n.id);
-  setView(first ? first.id : "overview");
+  setView(resolveLandingView(first ? first.id : "overview", nav));
+}
+
+/* STEP 4 routing: /admin/state and /admin/school arm the matching workspace. */
+function resolveLandingView(defaultView, nav) {
+  const path = location.pathname;
+  const ids = new Set(nav.map((n) => n.id).filter(Boolean));
+  if (path.startsWith("/admin/state")) {
+    if (API.user.role === "state_inspector") return "state-map";
+    toast("Access denied", "The State Admin Panel requires the state_inspector role.", "warn");
+    return defaultView;
+  }
+  if (path.startsWith("/admin/school")) {
+    if (API.user.role !== "state_inspector") return "overview";
+    toast("Access denied", "The School ERP Portal is for school_manager / teacher roles.", "warn");
+    return defaultView;
+  }
+  return defaultView;
 }
 
 function setView(id) {
@@ -224,7 +241,7 @@ async function renderStateMap() {
   $("#runAudit").addEventListener("click", async () => {
     $("#runAudit").disabled = true;
     try {
-      const r = await api("/api/state/audit/run", { method: "POST" });
+      const r = await api("/api/v1/state/audit/run", { method: "POST" });
       toast("Audit executed", `${r.red_alarms_raised} red alarm(s) raised this run.`, r.red_alarms_raised ? "alarm" : "success");
       loadStateMap();
     } catch (err) { toast("Audit failed", err.message, "alarm"); }
@@ -234,7 +251,7 @@ async function renderStateMap() {
 }
 
 async function loadStateMap() {
-  const data = await api("/api/state/compliance-map");
+  const data = await api("/api/v1/state/compliance-map");
   const s = data.summary;
   $("#mapStats").innerHTML = `
     <div class="stat-card"><div class="k">Active schools</div><div class="v">${s.active_schools}</div></div>
@@ -261,7 +278,7 @@ async function renderLookup() {
   $("#content").innerHTML = `
     <div class="panel">
       <h3>Statewide Student ID National Lookup Engine</h3>
-      <p class="sub">View B — deep search across Class 1-12 by national tracking ID (STU-…) or guardian surname</p>
+      <p class="sub">View B — deep search across Class 1-12 by national tracking ID (STU-…), guardian surname or guardian phone number</p>
       <div class="toolbar">
         <div class="field" style="flex:1">Query
           <input id="lookupQ" placeholder='e.g. "STU-2026-KX482" or "Farah"' style="width:100%" />
@@ -280,7 +297,7 @@ async function doLookup() {
   if (!q) return;
   $("#lookupTable").innerHTML = '<tbody><tr><td class="empty">Searching…</td></tr></tbody>';
   try {
-    const data = await api(`/api/state/students/search?q=${encodeURIComponent(q)}`);
+    const data = await api(`/api/v1/state/students/search?q=${encodeURIComponent(q)}`);
     const rows = data.results.map((r) => `
       <tr>
         <td class="mono">${esc(r.national_student_id)}</td>
@@ -300,7 +317,7 @@ async function doLookup() {
 
 /* ---------------- STATE: analytics ---------------- */
 async function renderAnalytics() {
-  const schools = await api("/api/state/schools");
+  const schools = await api("/api/v1/state/schools");
   $("#content").innerHTML = `
     <div class="firewall-note">🔒 Exam Data Release Valve — this portal aggregates <strong>published exams only</strong>. Private school drafts are structurally invisible here.</div>
     <div class="toolbar">
@@ -323,7 +340,7 @@ async function loadAnalytics() {
   const school = $("#anSchool")?.value; const level = $("#anLevel")?.value;
   if (school) params.set("school_id", school);
   if (level) params.set("class_level", level);
-  const data = await api(`/api/state/analytics/grades?${params}`);
+  const data = await api(`/api/v1/state/analytics/grades?${params}`);
   const rows = data.rows.map((r) => `
     <tr>
       <td><strong>${esc(r.school_name)}</strong></td><td>${esc(r.class_level)}</td><td>${esc(r.subject_name)}</td>
@@ -338,7 +355,7 @@ async function loadAnalytics() {
 
 /* ---------------- STATE: live attendance ---------------- */
 async function renderStateAttendance() {
-  const schools = await api("/api/state/schools");
+  const schools = await api("/api/v1/state/schools");
   $("#content").innerHTML = `
     <div class="toolbar">
       <div class="field">School
@@ -354,7 +371,7 @@ async function renderStateAttendance() {
 
 async function loadLiveAttendance() {
   const school = $("#laSchool")?.value;
-  const data = await api(`/api/state/attendance/live${school ? `?school_id=${school}` : ""}`);
+  const data = await api(`/api/v1/state/attendance/live${school ? `?school_id=${school}` : ""}`);
   const badge = { Present: "ok", Absent: "alarm", Late: "warn", Excused: "info" };
   const rows = data.records.map((r) => `
     <tr><td>${esc(r.school_name)}</td><td>${esc(r.class)}</td><td class="mono">${esc(r.national_student_id)}</td>
@@ -372,7 +389,7 @@ async function renderAlarms() {
   await loadAlarmFeed();
 }
 async function loadAlarmFeed() {
-  const data = await api("/api/state/alarms");
+  const data = await api("/api/v1/state/alarms");
   const rows = data.alarms.map((a) => `
     <tr><td style="white-space:nowrap">${fmtTime(a.timestamp_sent)}</td>
     <td>${esc(a.message)}</td>
@@ -382,7 +399,7 @@ async function loadAlarmFeed() {
 }
 
 async function renderExamEvents() {
-  const data = await api("/api/state/exam-events");
+  const data = await api("/api/v1/state/exam-events");
   const rows = data.events.map((e) => `
     <tr><td style="white-space:nowrap">${fmtTime(e.published_at)}</td><td>School #${e.school_id}</td>
     <td>Class #${e.class_id} · Subject #${e.subject_id}</td><td>${esc(e.exam_name)}</td>
@@ -395,7 +412,7 @@ async function renderExamEvents() {
 
 /* ---------------- SCHOOL: overview ---------------- */
 async function renderOverview() {
-  const data = await api("/api/school/overview");
+  const data = await api("/api/v1/school/overview");
   const d = data.daily_submission;
   const status = d.alarm_triggered
     ? '<span class="pill alarm">🚨 RED ALARM — audit breach</span>'
@@ -417,7 +434,7 @@ async function renderOverview() {
     </div>`;
   $("#submitRosterBtn").addEventListener("click", async () => {
     try {
-      const r = await api("/api/school/attendance/submit", { method: "POST", body: {} });
+      const r = await api("/api/v1/school/attendance/submit", { method: "POST", body: {} });
       toast("Roster submitted", r.message, r.submitted_after_deadline ? "warn" : "success");
       renderOverview();
     } catch (err) { toast("Cannot submit", err.message, "alarm"); }
@@ -426,7 +443,7 @@ async function renderOverview() {
 
 /* ---------------- SCHOOL: students ---------------- */
 async function renderStudents() {
-  const classes = await api("/api/school/classes");
+  const classes = await api("/api/v1/school/classes");
   API.classCache = classes.classes;
   const opts = classes.classes.map((c) => `<option value="${c.id}">${esc(c.class_label)} (${c.student_count})</option>`).join("");
   $("#content").innerHTML = `
@@ -472,7 +489,7 @@ async function createStudent() {
     guardian_phone: $("#stPhone").value || null, emergency_contact_phone: $("#stEmergency").value || null,
   };
   try {
-    const r = await api("/api/school/students", { method: "POST", body });
+    const r = await api("/api/v1/school/students", { method: "POST", body });
     $("#stResult").innerHTML = `✅ ${esc(r.message)} — <span class="mono-tag">${esc(r.national_student_id)}</span>`;
     toast("Student registered", `National ID ${r.national_student_id}`, "success");
     loadStudents();
@@ -483,7 +500,7 @@ async function loadStudents() {
   const params = new URLSearchParams();
   if ($("#stFilterClass").value) params.set("class_id", $("#stFilterClass").value);
   if ($("#stSearch").value.trim()) params.set("q", $("#stSearch").value.trim());
-  const data = await api(`/api/school/students?${params}`);
+  const data = await api(`/api/v1/school/students?${params}`);
   const rows = data.students.map((s) => `
     <tr><td class="mono">${esc(s.national_student_id)}</td>
     <td><strong>${esc(s.first_name)} ${esc(s.last_name)}</strong><div class="note">${esc(s.guardian_name ?? "")} · ${esc(s.guardian_phone ?? "")}</div></td>
@@ -495,8 +512,8 @@ async function loadStudents() {
 
 /* ---------------- SCHOOL: classes & subjects ---------------- */
 async function renderClasses() {
-  const classes = await api("/api/school/classes");
-  const subjects = await api("/api/school/subjects");
+  const classes = await api("/api/v1/school/classes");
+  const subjects = await api("/api/v1/school/subjects");
   $("#content").innerHTML = `
     <div class="panel">
       <h3>Create class (Class 1 → Class 12)</h3>
@@ -520,13 +537,13 @@ async function renderClasses() {
     </div>`;
   $("#clCreate").addEventListener("click", async () => {
     try {
-      await api("/api/school/classes", { method: "POST", body: { class_level: $("#clLevel").value, class_stream: $("#clStream").value, room_number: $("#clRoom").value || null } });
+      await api("/api/v1/school/classes", { method: "POST", body: { class_level: $("#clLevel").value, class_stream: $("#clStream").value, room_number: $("#clRoom").value || null } });
       toast("Class created", "", "success"); renderClasses();
     } catch (err) { toast("Failed", err.message, "alarm"); }
   });
   $("#suCreate").addEventListener("click", async () => {
     try {
-      await api("/api/school/subjects", { method: "POST", body: { subject_code: $("#suCode").value, subject_name: $("#suName").value, class_level: $("#suLevel").value } });
+      await api("/api/v1/school/subjects", { method: "POST", body: { subject_code: $("#suCode").value, subject_name: $("#suName").value, class_level: $("#suLevel").value } });
       toast("Subject created", "", "success"); renderClasses();
     } catch (err) { toast("Failed", err.message, "alarm"); }
   });
@@ -538,7 +555,7 @@ async function renderClasses() {
 
 /* ---------------- SCHOOL: attendance ---------------- */
 async function renderAttendance() {
-  const classes = await api("/api/school/classes");
+  const classes = await api("/api/v1/school/classes");
   API.classCache = classes.classes;
   $("#content").innerHTML = `
     <div class="panel">
@@ -568,8 +585,8 @@ async function loadRoster() {
   const date = $("#attDate").value || todayISO();
   $("#attGrid").innerHTML = '<div class="empty">Loading…</div>';
   const [students, attendance] = await Promise.all([
-    api(`/api/school/students?class_id=${classId}`),
-    api(`/api/school/attendance?class_id=${classId}&date=${date}`),
+    api(`/api/v1/school/students?class_id=${classId}`),
+    api(`/api/v1/school/attendance?class_id=${classId}&date=${date}`),
   ]);
   if (!students.students.length) { $("#attGrid").innerHTML = '<div class="empty">No active students in this class.</div>'; return; }
   $("#attGrid").innerHTML = students.students.map((s) => `
@@ -588,7 +605,7 @@ async function saveAttendance() {
   }));
   if (!entries.length) return;
   try {
-    const r = await api("/api/school/attendance", {
+    const r = await api("/api/v1/school/attendance", {
       method: "POST",
       body: { date: $("#attDate").value || todayISO(), class_id: +$("#attClass").value, entries },
     });
@@ -599,15 +616,15 @@ async function saveAttendance() {
 async function submitRoster() {
   await saveAttendance();
   try {
-    const r = await api("/api/school/attendance/submit", { method: "POST", body: { date: $("#attDate").value || todayISO() } });
+    const r = await api("/api/v1/school/attendance/submit", { method: "POST", body: { date: $("#attDate").value || todayISO() } });
     toast("Roster submitted", r.message, r.submitted_after_deadline ? "warn" : "success");
   } catch (err) { toast("Cannot submit", err.message, "alarm"); }
 }
 
 /* ---------------- SCHOOL: marks & publish valve ---------------- */
 async function renderMarks() {
-  const classes = await api("/api/school/classes");
-  const years = await api("/api/school/academic-years");
+  const classes = await api("/api/v1/school/classes");
+  const years = await api("/api/v1/school/academic-years");
   API.classCache = classes.classes; API.yearCache = years.academic_years;
   const year = years.academic_years.find((y) => y.is_current) ?? years.academic_years[0];
   $("#content").innerHTML = `
@@ -638,7 +655,7 @@ async function renderMarks() {
 async function loadSubjectOptions() {
   const level = $("#grClass").selectedOptions[0]?.dataset.level;
   if (!level) return;
-  const data = await api(`/api/school/subjects?class_level=${encodeURIComponent(level)}`);
+  const data = await api(`/api/v1/school/subjects?class_level=${encodeURIComponent(level)}`);
   $("#grSubject").innerHTML = data.subjects.map((s) => `<option value="${s.id}">${esc(s.subject_name)}</option>`).join("");
 }
 
@@ -648,8 +665,8 @@ async function loadMarkSheet() {
     class_id: $("#grClass").value, subject_id: $("#grSubject").value, exam_name: $("#grExam").value || "End of Term 1",
   });
   const [sheet, students] = await Promise.all([
-    api(`/api/school/grades?${params}`),
-    api(`/api/school/students?class_id=${$("#grClass").value}`),
+    api(`/api/v1/school/grades?${params}`),
+    api(`/api/v1/school/students?class_id=${$("#grClass").value}`),
   ]);
   const existing = Object.fromEntries(sheet.grades.map((g) => [g.student_id, g.numeric_score]));
   $("#grStatus").innerHTML = sheet.is_published
@@ -669,7 +686,7 @@ async function saveMarks() {
   }));
   if (!entries.length) { toast("Nothing to save", "Enter at least one score.", "warn"); return; }
   try {
-    const r = await api("/api/school/grades", {
+    const r = await api("/api/v1/school/grades", {
       method: "POST",
       body: {
         class_id: +$("#grClass").value, subject_id: +$("#grSubject").value,
@@ -685,7 +702,7 @@ async function publishMarks() {
   const examName = $("#grExam").value || "End of Term 1";
   if (!confirm(`Publish "${examName}" marks for this class + subject to the State?\n\nThis registers an IMMUTABLE exam_submission_event and cannot be undone.`)) return;
   try {
-    const r = await api("/api/school/grades/publish", {
+    const r = await api("/api/v1/school/grades/publish", {
       method: "POST",
       body: {
         class_id: +$("#grClass").value, subject_id: +$("#grSubject").value,
@@ -711,6 +728,11 @@ async function renderBilling() {
       <div style="overflow-x:auto"><table class="tbl" id="invTable"></table></div>
     </div>
     <div class="panel">
+      <h3>Student transaction profiles</h3>
+      <p class="sub">Per-learner tuition metrics, collected revenue and last payment instrument</p>
+      <div style="overflow-x:auto"><table class="tbl" id="profTable"></table></div>
+    </div>
+    <div class="panel">
       <h3>Record a payment</h3>
       <div class="toolbar">
         <div class="field">Invoice #<input type="number" id="payInv" style="width:110px" /></div>
@@ -724,10 +746,11 @@ async function renderBilling() {
 }
 
 async function loadBilling() {
-  const [summary, rates, invoices] = await Promise.all([
-    api("/api/school/billing/summary"),
-    api("/api/school/billing/tuition-rates"),
-    api("/api/school/billing/invoices"),
+  const [summary, rates, invoices, profiles] = await Promise.all([
+    api("/api/v1/school/finance/summary"),
+    api("/api/v1/school/finance/tuition-rates"),
+    api("/api/v1/school/finance/invoices"),
+    api("/api/v1/school/finance/student-profiles"),
   ]);
   $("#billStats").innerHTML = `
     <div class="stat-card"><div class="k">Total billed</div><div class="v">$${summary.total_billed.toLocaleString()}</div></div>
@@ -743,11 +766,21 @@ async function loadBilling() {
       <td>$${i.amount_due.toFixed(2)}</td><td>$${i.amount_paid.toFixed(2)}</td><td><strong>$${i.balance.toFixed(2)}</strong></td>
       <td><span class="pill ${badge[i.status] ?? "dim"}">${esc(i.status).replace("_", " ").toUpperCase()}</span></td></tr>`).join("")
     || '<tr><td colspan="7" class="empty">No invoices yet.</td></tr>'}</tbody>`;
+
+  const profBadge = (b) => (b <= 0.001 ? "ok" : b > 100 ? "alarm" : "warn");
+  $("#profTable").innerHTML = `<thead><tr><th>Student</th><th>National ID</th><th>Class</th><th>Invoices</th><th>Billed</th><th>Collected</th><th>Balance</th><th>Last payment</th></tr></thead><tbody>${
+    profiles.student_profiles.map((p) => `
+      <tr><td><strong>${esc(p.student)}</strong></td><td class="mono">${esc(p.national_student_id)}</td>
+      <td>${esc(p.class_label ?? "—")}</td><td>${p.invoices}</td>
+      <td>$${p.total_billed.toFixed(2)}</td><td>$${p.total_paid.toFixed(2)}</td>
+      <td><span class="pill ${profBadge(p.balance)}">$${p.balance.toFixed(2)}</span></td>
+      <td>${p.last_payment_at ? `${fmtTime(p.last_payment_at)} · ${esc(p.last_payment_method).replace("_", " ")}` : "—"}</td></tr>`).join("")
+    || '<tr><td colspan="8" class="empty">No student profiles.</td></tr>'}</tbody>`;
 }
 
 async function applyPayment() {
   try {
-    const r = await api(`/api/school/billing/invoices/${+$("#payInv").value}/payments`, {
+    const r = await api(`/api/v1/school/finance/invoices/${+$("#payInv").value}/payments`, {
       method: "POST",
       body: { amount: +$("#payAmount").value, payment_method: $("#payMethod").value },
     });

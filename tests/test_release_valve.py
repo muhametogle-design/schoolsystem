@@ -14,20 +14,20 @@ def _horizon_school_id() -> int:
 
 def _analytics_for_horizon(client, auth_headers):
     sid = _horizon_school_id()
-    rows = client.get(f"/api/state/analytics/grades?school_id={sid}", headers=auth_headers).json()["rows"]
+    rows = client.get(f"/api/v1/state/analytics/grades?school_id={sid}", headers=auth_headers).json()["rows"]
     return rows
 
 
 def _draft_scope(client, horizon_manager_headers):
-    classes = client.get("/api/school/classes", headers=horizon_manager_headers).json()["classes"]
-    year = client.get("/api/school/academic-years", headers=horizon_manager_headers).json()["academic_years"]
+    classes = client.get("/api/v1/school/classes", headers=horizon_manager_headers).json()["classes"]
+    year = client.get("/api/v1/school/academic-years", headers=horizon_manager_headers).json()["academic_years"]
     year_id = next(y["id"] for y in year if y["is_current"])
     for c in classes:
         subjects = client.get(
-            f"/api/school/subjects?class_level={c['class_level']}", headers=horizon_manager_headers
+            f"/api/v1/school/subjects?class_level={c['class_level']}", headers=horizon_manager_headers
         ).json()["subjects"]
         roster = client.get(
-            f"/api/school/students?class_id={c['id']}", headers=horizon_manager_headers
+            f"/api/v1/school/students?class_id={c['id']}", headers=horizon_manager_headers
         ).json()["students"]
         if subjects and roster:
             return c, subjects[0], year_id, roster
@@ -40,7 +40,7 @@ def test_drafts_are_invisible_to_state_analytics(client, auth_headers, horizon_m
 
     # Teacher/school saves private draft marks
     res = client.post(
-        "/api/school/grades",
+        "/api/v1/school/grades",
         headers=horizon_manager_headers,
         json={
             "class_id": c["id"],
@@ -64,7 +64,7 @@ def test_publish_releases_data_and_creates_immutable_event(
     exam = "Valve Test Opener"
 
     res = client.post(
-        "/api/school/grades/publish",
+        "/api/v1/school/grades/publish",
         headers=horizon_manager_headers,
         json={
             "class_id": c["id"],
@@ -96,7 +96,7 @@ def test_publish_releases_data_and_creates_immutable_event(
 def test_republish_is_rejected(client, auth_headers, horizon_manager_headers):
     c, subject, year_id, _ = _draft_scope(client, horizon_manager_headers)
     res = client.post(
-        "/api/school/grades/publish",
+        "/api/v1/school/grades/publish",
         headers=horizon_manager_headers,
         json={
             "class_id": c["id"],
@@ -112,7 +112,7 @@ def test_republish_is_rejected(client, auth_headers, horizon_manager_headers):
 def test_published_marks_are_frozen(client, horizon_manager_headers):
     c, subject, year_id, roster = _draft_scope(client, horizon_manager_headers)
     res = client.post(
-        "/api/school/grades",
+        "/api/v1/school/grades",
         headers=horizon_manager_headers,
         json={
             "class_id": c["id"],
@@ -127,7 +127,7 @@ def test_published_marks_are_frozen(client, horizon_manager_headers):
 
 def test_teachers_cannot_publish(client, greenfield_teacher_headers):
     res = client.post(
-        "/api/school/grades/publish",
+        "/api/v1/school/grades/publish",
         headers=greenfield_teacher_headers,
         json={"class_id": 1, "subject_id": 1, "academic_year_id": 1, "exam_name": "X"},
     )

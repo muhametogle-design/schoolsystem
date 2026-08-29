@@ -42,7 +42,7 @@ from app.services.compliance import submit_daily_attendance_roster
 from app.services.publication import publish_exam_marks
 from app.services.student_id import generate_unique_national_student_id
 
-router = APIRouter(prefix="/api/school", tags=["school-erp"])
+router = APIRouter(prefix="/api/v1/school", tags=["school-erp"])
 
 any_school_user = require_school()
 erp_write = require_school("school_manager", "teacher")

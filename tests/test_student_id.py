@@ -24,9 +24,9 @@ def test_ids_are_unique_in_a_large_batch():
 
 
 def test_registration_endpoint_issues_generated_id(client, greenfield_manager_headers):
-    classes = client.get("/api/school/classes", headers=greenfield_manager_headers).json()["classes"]
+    classes = client.get("/api/v1/school/classes", headers=greenfield_manager_headers).json()["classes"]
     res = client.post(
-        "/api/school/students",
+        "/api/v1/school/students",
         headers=greenfield_manager_headers,
         json={
             "first_name": "Test",
