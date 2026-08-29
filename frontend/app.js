@@ -27,6 +27,13 @@ async function api(path, { method = "GET", body } = {}) {
   let data = {};
   try { data = await res.json(); } catch { /* empty */ }
   if (!res.ok) {
+    if (res.status === 401 && API.token) {
+      // Session expired / revoked — return to the sign-in screen cleanly.
+      localStorage.clear();
+      API.token = null; API.user = null;
+      toast("Session expired", "Please sign in again.", "warn");
+      setTimeout(() => location.reload(), 1200);
+    }
     const detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail ?? data);
     const err = new Error(detail || `HTTP ${res.status}`);
     err.status = res.status;
@@ -81,7 +88,8 @@ document.querySelectorAll(".demo-chip").forEach((chip) => {
   });
 });
 
-$("#logoutBtn").addEventListener("click", () => {
+$("#logoutBtn").addEventListener("click", async () => {
+  try { await api("/api/auth/logout", { method: "POST" }); } catch { /* best effort */ }
   localStorage.clear();
   API.token = null; API.user = null;
   if (API.ws) { try { API.ws.close(); } catch { /* noop */ } }
@@ -94,7 +102,11 @@ function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(API.token)}`);
   API.ws = ws;
-  ws.onopen = () => $("#wsPill").classList.add("live"), ($("#wsPill").innerHTML = '<span class="dot"></span> live');
+  ws.onopen = () => {
+    const pill = $("#wsPill");
+    pill.classList.add("live");
+    pill.innerHTML = '<span class="dot"></span> live';
+  };
   ws.onclose = () => {
     $("#wsPill").classList.remove("live");
     $("#wsPill").innerHTML = '<span class="dot"></span> offline';
@@ -182,7 +194,7 @@ function enterApp() {
   $("#appView").classList.remove("hidden");
   const u = API.user;
   $("#whoami").textContent = `${u.first_name ?? ""} ${u.last_name ?? ""} · ${u.role}${u.school_name ? " · " + u.school_name : ""}`.trim();
-  $("#topSub").textContent = u.role === "state_inspector" ? "State Government Super-Admin Portal" : `${u.school_name} — Tenant ERP`;
+  $("#topSub").textContent = (u.role === "state_inspector" ? "State Government Super-Admin Portal" : `${u.school_name} — Tenant ERP`) + (API.version ? ` · v${API.version}` : "");
   const nav = NAV[u.role] ?? [];
   $("#sidenav").innerHTML = nav.map((item) =>
     item.section
@@ -230,13 +242,19 @@ async function renderStateMap() {
   $("#content").innerHTML = `
     <div class="toolbar">
       <button class="btn btn-danger" id="runAudit">▶ Run 15:00 Red Alarm Audit now</button>
+      <select id="mapFilter" aria-label="Filter schools">
+        <option value="all">All active schools</option>
+        <option value="alarms">🚨 Alarms only</option>
+        <option value="compliant">✅ Compliant only</option>
+      </select>
+      <button class="btn" id="mapCsv">⬇ Export CSV</button>
       <span class="note" style="margin:0">Worker cron fires automatically at 15:00 daily (3h past the 12:00 PM deadline).</span>
     </div>
     <div class="stat-grid" id="mapStats"></div>
     <div class="panel">
       <h3>Active Private Schools — Attendance Compliance</h3>
       <p class="sub">View A: State Supervisor Core Command Map &amp; Alarm Portal · generated live</p>
-      <div style="overflow-x:auto"><table class="tbl" id="mapTable"></table></div>
+      <div class="tbl-wrap"><table class="tbl" id="mapTable"></table></div>
     </div>`;
   $("#runAudit").addEventListener("click", async () => {
     $("#runAudit").disabled = true;
@@ -247,30 +265,61 @@ async function renderStateMap() {
     } catch (err) { toast("Audit failed", err.message, "alarm"); }
     finally { $("#runAudit").disabled = false; }
   });
+  $("#mapFilter").addEventListener("change", () => renderMapRows());
+  $("#mapCsv").addEventListener("click", exportMapCsv);
   await loadStateMap();
+}
+
+function mapFilteredRows() {
+  const rows = API.mapData?.schools ?? [];
+  const mode = $("#mapFilter")?.value ?? "all";
+  if (mode === "alarms") return rows.filter((r) => r.is_red_alarm_active);
+  if (mode === "compliant") return rows.filter((r) => r.daily_attendance_logged && !r.is_red_alarm_active);
+  return rows;
+}
+
+function exportMapCsv() {
+  const rows = mapFilteredRows();
+  const header = ["School", "License", "Roster submitted", "Time received", "Red alarm", "Compliance status"];
+  const body = rows.map((r) => [
+    r.school_name, r.state_license_number,
+    r.daily_attendance_logged ? "YES" : "NO", r.time_received ?? "",
+    r.is_red_alarm_active ? "YES" : "NO", r.state_compliance_status.replace(/[^\x20-\x7E]/g, "").trim(),
+  ]);
+  const csv = [header, ...body].map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: `state-compliance-map-${todayISO()}.csv` });
+  a.click();
+  URL.revokeObjectURL(url);
+  toast("Export ready", `${rows.length} school row(s) exported to CSV.`, "success");
 }
 
 async function loadStateMap() {
   const data = await api("/api/v1/state/compliance-map");
+  API.mapData = data;
   const s = data.summary;
   $("#mapStats").innerHTML = `
     <div class="stat-card"><div class="k">Active schools</div><div class="v">${s.active_schools}</div></div>
     <div class="stat-card green"><div class="k">Compliant</div><div class="v">${s.compliant}</div></div>
     <div class="stat-card amber"><div class="k">Pending</div><div class="v">${s.pending}</div></div>
     <div class="stat-card red"><div class="k">🚨 Red alarms</div><div class="v">${s.red_alarms}</div></div>`;
-  const rows = data.schools.map((r) => `
-    <tr>
-      <td><strong>${esc(r.school_name)}</strong><div class="mono">${esc(r.state_license_number)}</div></td>
-      <td>${r.daily_attendance_logged ? `<span class="pill ok">SUBMITTED</span><div class="note">${fmtTime(r.time_received)}</div>` : `<span class="pill warn">NOT SUBMITTED</span>`}</td>
-      <td>${r.is_red_alarm_active ? '<span class="pill alarm">RED ALARM</span>' : '<span class="pill dim">—</span>'}</td>
-      <td>${esc(r.state_compliance_status)}</td>
-    </tr>`).join("");
-  $("#mapTable").innerHTML = `
-    <thead><tr><th>School</th><th>Today's roster</th><th>Alarm</th><th>Compliance status</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="4" class="empty">No active schools</td></tr>'}</tbody>`;
+  renderMapRows();
   if (data.schools.some((r) => r.is_red_alarm_active)) {
     showAlarmBanner(`🚨 ${data.schools.filter((r) => r.is_red_alarm_active).map((r) => r.school_name).join(", ")} — RED ALARM: attendance overdue by 3+ hours.`);
   }
+}
+
+function renderMapRows() {
+  const rows = mapFilteredRows();
+  $("#mapTable").innerHTML = `
+    <thead><tr><th>School</th><th>Today's roster</th><th>Alarm</th><th>Compliance status</th></tr></thead>
+    <tbody>${rows.map((r) => `
+      <tr>
+        <td><strong>${esc(r.school_name)}</strong><div class="mono">${esc(r.state_license_number)}</div></td>
+        <td>${r.daily_attendance_logged ? `<span class="pill ok">SUBMITTED</span><div class="note">${fmtTime(r.time_received)}</div>` : `<span class="pill warn">NOT SUBMITTED</span>`}</td>
+        <td>${r.is_red_alarm_active ? '<span class="pill alarm">RED ALARM</span>' : '<span class="pill dim">—</span>'}</td>
+        <td>${esc(r.state_compliance_status)}</td>
+      </tr>`).join("") || '<tr><td colspan="4" class="empty">No schools match this filter.</td></tr>'}</tbody>`;
 }
 
 /* ---------------- STATE: student lookup ---------------- */
@@ -345,12 +394,13 @@ async function loadAnalytics() {
     <tr>
       <td><strong>${esc(r.school_name)}</strong></td><td>${esc(r.class_level)}</td><td>${esc(r.subject_name)}</td>
       <td>${r.total_marked_records}</td>
+      <td><div class="bar" title="Average ${r.structural_average_mark}"><span style="width:${Math.min(100, r.structural_average_mark ?? 0)}%"></span></div></td>
       <td><strong>${r.structural_average_mark?.toFixed(2)}</strong></td>
       <td>${r.peak_score?.toFixed(2)}</td>
     </tr>`).join("");
   $("#anTable").innerHTML = `
-    <thead><tr><th>School</th><th>Class</th><th>Subject</th><th>Records</th><th>Average mark</th><th>Peak</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="6" class="empty">No published exam data for this filter yet.</td></tr>'}</tbody>`;
+    <thead><tr><th>School</th><th>Class</th><th>Subject</th><th>Records</th><th>Distribution</th><th>Average mark</th><th>Peak</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="7" class="empty">No published exam data for this filter yet.</td></tr>'}</tbody>`;
 }
 
 /* ---------------- STATE: live attendance ---------------- */
@@ -465,7 +515,7 @@ async function renderStudents() {
       <p class="note" id="stResult"></p>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Student registry</h3>
+      <div class="panel-head"><h3>Student registry <span class="count-badge" id="stCount"></span></h3>
         <div class="toolbar" style="margin:0">
           <select id="stFilterClass"><option value="">All classes</option>${opts}</select>
           <input id="stSearch" placeholder="Search name or STU-ID" />
@@ -501,6 +551,7 @@ async function loadStudents() {
   if ($("#stFilterClass").value) params.set("class_id", $("#stFilterClass").value);
   if ($("#stSearch").value.trim()) params.set("q", $("#stSearch").value.trim());
   const data = await api(`/api/v1/school/students?${params}`);
+  $("#stCount").textContent = `${data.students.length} shown`;
   const rows = data.students.map((s) => `
     <tr><td class="mono">${esc(s.national_student_id)}</td>
     <td><strong>${esc(s.first_name)} ${esc(s.last_name)}</strong><div class="note">${esc(s.guardian_name ?? "")} · ${esc(s.guardian_phone ?? "")}</div></td>
@@ -790,6 +841,15 @@ async function applyPayment() {
 }
 
 /* ---------------- boot ---------------- */
+(async () => {
+  try {
+    const h = await api("/api/health");
+    API.version = h.version;
+    const hero = document.querySelector("#heroVersion");
+    if (hero) hero.textContent = `v${h.version}`;
+  } catch { /* offline — keep default version label */ }
+})();
+
 if (API.token && API.user) {
   enterApp();
 } else {

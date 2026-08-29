@@ -27,15 +27,22 @@ SCHOOL_ROLES = ("school_manager", "teacher")
 
 _bearer = HTTPBearer(auto_error=False)
 
+# Cookie name used as an auth fallback. Some reverse proxies / embedded
+# dashboard frames strip the Authorization header; the HttpOnly cookie
+# (set at login) keeps sessions working transparently behind them.
+AUTH_COOKIE = "schoolsystem_token"
+
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> User:
-    if credentials is None:
+    token = credentials.credentials if credentials else request.cookies.get(AUTH_COOKIE)
+    if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
     try:
-        payload = decode_access_token(credentials.credentials)
+        payload = decode_access_token(token)
     except pyjwt.PyJWTError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Invalid or expired token: {exc}")
     user = db.get(User, int(payload["sub"]))

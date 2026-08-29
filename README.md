@@ -1,8 +1,21 @@
-# SomTech SchoolSystem
+# SchoolSystem
+
+[![CI](https://github.com/muhametogle-design/schoolsystem/actions/badge.svg)](https://github.com/muhametogle-design/schoolsystem/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-4f8cff.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-38%20green-2ecc8f.svg)](tests)
 
 **Private School Management & State Compliance Monitoring Software System** — a
 centralized SaaS platform provided by a State Government for licensed private
 schools (Class 1 → Class 12).
+
+| Documentation | |
+|---|---|
+| [Deployment guide](DEPLOYMENT.md) | Production topology, TLS, backups, go-live checklist |
+| [API reference](API_REFERENCE.md) | `/api/v1/*` route contract |
+| [Security model](SECURITY_AND_RLS.md) | The financial firewall & RLS |
+| [Database design](DATABASE_DESIGN.md) | Schema, constraints, analytics views |
+| [Architecture](ARCHITECTURE.md) | Topology & data flows |
+| [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [License](LICENSE) | Project hygiene |
 
 The repo contains the full implementation of the three-phase technical
 specification:
@@ -15,7 +28,9 @@ specification:
 | **3** | Interactive Query Analytics (Views A / B / C) | `sql/003_analytics_views.sql`, `app/services/analytics.py` |
 | ✚ | FastAPI multi-tenant API + WebSocket alarm stream | `app/` |
 | ✚ | Role-aware dashboard (State portal + tenant ERP) | `frontend/` |
-| ✚ | Test suite incl. firewall & release-valve proofs | `tests/` |
+| ✚ | Production hardening: login throttling, security headers, structured logging | `app/main.py`, `app/core/ratelimit.py` |
+| ✚ | Test suite incl. firewall & release-valve proofs (38 tests) | `tests/` |
+| ✚ | CI: pytest + PostgreSQL DDL grammar validation + image build | `ci/github-actions.yml` → copy to `.github/workflows/ci.yml` |
 
 ---
 

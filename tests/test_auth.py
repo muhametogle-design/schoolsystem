@@ -26,6 +26,29 @@ def test_login_rejects_bad_password(client):
 
 
 def test_me_requires_token(client):
+    client.cookies.clear()  # ignore any lingering session cookie
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_cookie_fallback_authentication(client):
+    """Behind proxies/frames that strip the Authorization header, the HttpOnly
+    cookie set at login must authenticate the session on its own."""
+    res = client.post(
+        "/api/auth/login",
+        json={"email": "inspector@education.gov", "password": "State@2026"},
+    )
+    assert res.status_code == 200
+    assert "schoolsystem_token" in res.cookies
+
+    me = client.get("/api/auth/me")  # no Authorization header — cookie only
+    assert me.status_code == 200
+    assert me.json()["role"] == "state_inspector"
+
+    # State portal also authenticates via cookie
+    cmap = client.get("/api/v1/state/compliance-map")
+    assert cmap.status_code == 200
+
+    client.post("/api/auth/logout")
     assert client.get("/api/auth/me").status_code == 401
 
 
