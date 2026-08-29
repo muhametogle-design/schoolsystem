@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install pglast
+
+      - name: Validate PostgreSQL DDL against the real grammar
+        run: |
+          python - <<'EOF'
+          import pglast
+          for f in ["sql/001_schema.sql", "sql/002_security_firewall.sql", "sql/003_analytics_views.sql"]:
+              stmts = pglast.parse_sql(open(f).read())
+              print(f"OK {f}: {len(stmts)} statements")
+          EOF
+
+      - name: Run test suite
+        env:
+          DATABASE_URL: sqlite:///${{ runner.temp }}/ci.db
+        run: python -m pytest -q
+
+  web:
+    name: Build React workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install and build
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Fail if the bundle is missing
+        working-directory: web
+        run: test -f dist/index.html
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image
+        run: docker build -t schoolsystem-ci .
