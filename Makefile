@@ -1,20 +1,22 @@
-.PHONY: install test seed db-up run demo
+.PHONY: install dev test seed docker psql clean
 
 install:
-	python3 -m venv .venv
-	. .venv/bin/activate && pip install -r requirements-dev.txt
+	pip install -r requirements-dev.txt
 
-test:
-	. .venv/bin/activate && pytest
+dev: ## Run the API + dashboard locally on SQLite demo tier (http://localhost:8000)
+	python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 seed:
-	. .venv/bin/activate && python scripts/seed_data.py
+	python scripts/seed_data.py
 
-db-up:
-	docker compose up -d db
+test:
+	python -m pytest -q
 
-run:
-	. .venv/bin/activate && uvicorn app.main:app --reload --host 0.0.0.0 --port 5000
+docker: ## Full stack on real PostgreSQL 16
+	docker compose up --build
 
-demo:
-	. .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 5000
+psql:
+	docker compose exec db psql -U school -d schoolsystem
+
+clean:
+	rm -rf data/*.db* tests/_test_schoolsystem.db .pytest_cache

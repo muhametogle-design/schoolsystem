@@ -1,76 +1,55 @@
-"""SQLAlchemy engine/session factories.
-
-The application always opens connections with a session-local ``campus_id``,
-``role`` and ``user_id`` set in Postgres so Row-Level-Security policies in
-``sql/001_schema.sql`` restrict every read/write to the calling tenant.
-"""
+"""Database engine + session management (PostgreSQL production / SQLite demo)."""
 
 from __future__ import annotations
 
-import uuid
-from contextlib import contextmanager
-from typing import Iterator, Optional
+import os
+from collections.abc import Generator
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 
-_engine: Optional[Engine] = None
+IS_SQLITE = settings.database_url.startswith("sqlite")
+
+_engine_kwargs: dict = {"pool_pre_ping": True}
+if IS_SQLITE:
+    _db_dir = os.path.join(os.getcwd(), "data")
+    os.makedirs(_db_dir, exist_ok=True)
+    _engine_kwargs.update({"connect_args": {"check_same_thread": False}})
+
+engine = create_engine(settings.database_url, **_engine_kwargs)
+
+# Enforce foreign keys + WAL on the SQLite demo tier (Postgres needs nothing here).
+if IS_SQLITE:
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _record):  # pragma: no cover - driver glue
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.close()
 
 
-def get_engine() -> Engine:
-    global _engine
-    if _engine is None:
-        _engine = create_engine(
-            settings.database_url,
-            pool_pre_ping=True,
-            pool_size=10,
-            max_overflow=20,
-            future=True,
-        )
-    return _engine
+SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
-def get_sessionmaker() -> sessionmaker:
-    return sessionmaker(bind=get_engine(), autoflush=False, expire_on_commit=False)
+def get_db() -> Generator[Session, None, None]:
+    """FastAPI dependency yielding a scoped session."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
-def set_session_tenancy(
-    session: Session,
-    campus_id: uuid.UUID,
-    *,
-    role: str = "anonymous",
-    user_id: Optional[uuid.UUID] = None,
-) -> None:
-    """Bake the calling tenant into the Postgres transaction (RLS context)."""
+def init_db() -> None:
+    """Create tables from the ORM metadata.
 
-    for cfg_name, value in (
-        ("neemis.campus_id", str(campus_id) if campus_id else None),
-        ("neemis.role", role),
-        ("neemis.user_id", str(user_id) if user_id else None),
-    ):
-        # set_config(..., true) is transaction-local, which is exactly what we
-        # want for the lifetime of one request/transaction.
-        session.execute(
-            text("SELECT set_config(:name, coalesce(:value, ''), true)"),
-            {"name": cfg_name, "value": value or ""},
-        )
+    On PostgreSQL, prefer running sql/001_schema.sql + 002_security_firewall.sql
+    + 003_analytics_views.sql as the authoritative Phase 1 DDL; metadata.create_all
+    is the portable fallback used by the demo tier and tests.
+    """
+    from app.models import Base  # noqa: F401  (imports every model)
 
-
-@contextmanager
-def tenant_session(
-    campus_id: uuid.UUID,
-    *,
-    role: str = "anonymous",
-    user_id: Optional[uuid.UUID] = None,
-) -> Iterator[Session]:
-    """Context-managed session with RLS context applied."""
-    factory = get_sessionmaker()
-    with factory() as session:
-        set_session_tenancy(session, campus_id, role=role, user_id=user_id)
-        try:
-            yield session
-        finally:
-            session.close()
+    Base.metadata.create_all(bind=engine)

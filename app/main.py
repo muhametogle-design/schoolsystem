@@ -1,37 +1,71 @@
-"""NE-EMIS API entrypoint."""
+"""Private School Management & State Compliance Monitoring System — API entrypoint.
+
+Boot sequence:
+  1. Create tables (portable fallback; PostgreSQL deployments should run sql/).
+  2. Auto-seed the demo tier when the database comes up empty.
+  3. Arm the in-process 15:00 Red Alarm worker cron.
+"""
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import (
-    aggregation,
-    auth,
-    demo,
-    health,
-    ingestion,
-    locking,
-    state,
-    students,
-    teachers,
-)
+from app.api import auth, billing, health, school, state, ws
 from app.core.config import settings
+from app.core.db import SessionLocal, init_db, IS_SQLITE
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("main")
+
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
+_scheduler_task: asyncio.Task | None = None
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _scheduler_task
+
+    init_db()
+
+    if settings.auto_seed_demo:
+        from scripts.seed_data import seed_if_empty
+
+        with SessionLocal() as session:
+            seed_if_empty(session)
+
+    if settings.enable_scheduler:
+        from app.services.scheduler import compliance_scheduler_loop
+
+        _scheduler_task = asyncio.create_task(compliance_scheduler_loop())
+
+    logger.info("Platform up — attendance deadline %s, red alarm audit at %s %s",
+                settings.attendance_deadline, settings.alarm_audit_time, settings.platform_timezone)
+    yield
+
+    if _scheduler_task:
+        _scheduler_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _scheduler_task
+
 
 app = FastAPI(
-    title=f"{settings.app_name} API",
+    title="Private School Management & State Compliance Monitoring System",
     version="1.0.0",
+    lifespan=lifespan,
     description=(
-        "Multi-tenant cloud-based Education Management Information System. "
-        "Campus-isolated RLS writes + centralised state aggregation through a "
-        "four-phase ingestion pipeline."
+        "Multi-tenant SaaS for state-supervised private schools (Class 1-12). "
+        "Tenant ERP + State read-only compliance visibility, the 12:00 PM "
+        "attendance deadline, the 15:00 RED ALARM engine with live WebSocket "
+        "alerts, the Exam Data Release Valve, and a hard financial firewall."
     ),
-    openapi_url="/openapi.json",
-    docs_url="/docs",
 )
 
 app.add_middleware(
@@ -44,21 +78,10 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(auth.router)
-app.include_router(students.router)
-app.include_router(teachers.router)
-app.include_router(ingestion.router)
-app.include_router(locking.router)
-app.include_router(aggregation.router)
 app.include_router(state.router)
-app.include_router(demo.router)
+app.include_router(school.router)
+app.include_router(billing.router)
+app.include_router(ws.router)
 
-FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
-
-
-@app.get("/")
-def root():
-    return FileResponse(FRONTEND_DIR / "index.html")
-
-
-# Serve the demo dashboard; explicit API routes above take precedence.
-app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+if _FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")

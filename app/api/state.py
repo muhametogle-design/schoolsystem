@@ -1,179 +1,153 @@
-"""Phase 4 State Control Services API.
+"""STATE GOVERNMENT SUPER-ADMIN PORTAL (read-only academics + alarm engine).
 
-State admins analyze KPIs, trigger automated funding payouts and reallocate
-teaching staff. These endpoints are read-dominant and always require a
-state-level role.
-
-NOTES ON RLS: *After* a campus credential has switched to state-admin the
-state tables (``central.*``) are visible because they are not tenant tables;
-state operations that need to write into a campus table still use the
-``sys_campus_role`` session setter in deployment via the ``app.portal``
-service (see ``app/services/portal.py`` reference).
+Every route requires the state_inspector role. Financial data is
+structurally absent from this router: there is no route, no service import
+and no query that can express it.
 """
 
 from __future__ import annotations
 
-import uuid
-from datetime import date
+import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_principal, get_session
-from app.core.tenancy import Principal
-from app.models.audit import CentralFundingPayout, CentralKpiRollup
-from app.models.teachers import CivilServiceGrade, TeacherPayrollProfile
-from app.services.state_control import (
-    approve_payout,
-    compute_capitation_payouts,
-    compute_kpi_rollup,
-    compute_payroll_payouts,
-    list_teacher_vacancies,
-    settle_payout,
+from app.api.deps import require_state
+from app.core.db import get_db
+from app.models import CommunicationLog, ExamSubmissionEvent, PrivateSchool, User
+from app.services.analytics import (
+    state_live_attendance_feed,
+    view_a_state_compliance_map,
+    view_b_student_lookup,
+    view_c_grade_analytics,
 )
+from app.services.compliance import process_daily_attendance_deadlines
 
-router = APIRouter(prefix="/state", tags=["phase-4-state-control"])
-
-STATE_ONLY = ("state_admin", "system")
-
-
-def _guard(principal: Principal) -> None:
-    if principal.role not in STATE_ONLY:
-        raise HTTPException(403, "State admin role required")
+router = APIRouter(prefix="/api/state", tags=["state-portal"], dependencies=[Depends(require_state)])
 
 
-@router.get("/kpis")
-def get_kpis(
-    state_code: str,
-    period_start: date,
-    period_end: date,
-    campus_id: uuid.UUID | None = None,
-    principal: Principal = Depends(get_principal),
-    session: Session = Depends(get_session),
-):
-    _guard(principal)
-    rollup = compute_kpi_rollup(
-        session,
-        state_code=state_code,
-        period_start=period_start,
-        period_end=period_end,
-        campus_id=campus_id,
-    )
+@router.get("/compliance-map")
+def compliance_map(db: Session = Depends(get_db)):
+    """View A — State Supervisor Core Command Map & Alarm Portal."""
+    rows = view_a_state_compliance_map(db)
     return {
-        "state_code": state_code,
-        "period_start": period_start.isoformat(),
-        "period_end": period_end.isoformat(),
-        "metrics": rollup.metrics,
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "attendance_deadline": "12:00",
+        "alarm_audit_time": "15:00",
+        "summary": {
+            "active_schools": len(rows),
+            "red_alarms": sum(1 for r in rows if r["is_red_alarm_active"]),
+            "compliant": sum(1 for r in rows if r["daily_attendance_logged"]),
+            "pending": sum(1 for r in rows if not r["daily_attendance_logged"]),
+        },
+        "schools": rows,
     }
 
 
-class VacancyQuery(BaseModel):
-    state_code: str
-    academic_year_id: uuid.UUID
-    term_id: uuid.UUID
+@router.get("/students/search")
+def student_lookup(q: str = Query(min_length=1), db: Session = Depends(get_db)):
+    """View B — State-Wide Student ID National Lookup Engine."""
+    return {"query": q, "results": view_b_student_lookup(db, q)}
 
 
-@router.post("/vacancies")
-def vacancies(
-    body: VacancyQuery,
-    principal: Principal = Depends(get_principal),
-    session: Session = Depends(get_session),
+@router.get("/analytics/grades")
+def grade_analytics(
+    school_id: int | None = None,
+    class_level: str | None = Query(default=None, description="e.g. 'Class 7'"),
+    db: Session = Depends(get_db),
 ):
-    _guard(principal)
-    return list_teacher_vacancies(
-        session,
-        state_code=body.state_code,
-        academic_year_id=body.academic_year_id,
-        term_id=body.term_id,
+    """View C — Class 1-12 Grade Analytics & Benchmarking (published only)."""
+    return {
+        "filtered_to_published_exams": True,
+        "rows": view_c_grade_analytics(db, school_id=school_id, class_level=class_level),
+    }
+
+
+@router.get("/attendance/live")
+def live_attendance(
+    school_id: int | None = None,
+    date: dt.date | None = None,
+    db: Session = Depends(get_db),
+):
+    """Read-only state visibility into live attendance logs."""
+    return {"date": (date or dt.date.today()).isoformat(), "records": state_live_attendance_feed(db, school_id=school_id, target_date=date)}
+
+
+@router.get("/alarms")
+def alarm_feed(limit: int = 50, db: Session = Depends(get_db)):
+    rows = (
+        db.execute(
+            select(CommunicationLog)
+            .where(CommunicationLog.message_type == "Red_Alarm")
+            .order_by(CommunicationLog.timestamp_sent.desc())
+            .limit(min(limit, 200))
+        )
+        .scalars()
+        .all()
     )
+    return {
+        "alarms": [
+            {
+                "id": a.id,
+                "school_id": a.school_id,
+                "message": a.message_content,
+                "delivery_status": a.delivery_status,
+                "timestamp_sent": a.timestamp_sent.isoformat() if a.timestamp_sent else None,
+            }
+            for a in rows
+        ]
+    }
 
 
-class PayrollFundingRequest(BaseModel):
-    period: str
-    campus_id: uuid.UUID | None = None
-
-
-@router.post("/payouts/payroll")
-def generate_payroll_payouts(
-    body: PayrollFundingRequest,
-    principal: Principal = Depends(get_principal),
-    session: Session = Depends(get_session),
-):
-    _guard(principal)
-    # Phase-4 trigger: only pay-out entries that deans have approved in Phase 2.
-    rows = compute_payroll_payouts(session, period=body.period, campus_id=body.campus_id)
-    return [
-        {"payout_id": str(r.id), "campus_id": str(r.campus_id), "amount": str(r.amount), "status": r.status}
-        for r in rows
-    ]
-
-
-class CapitationFundingRequest(BaseModel):
-    period: str
-    per_student_rate: float
-    campus_id: uuid.UUID | None = None
-
-
-@router.post("/payouts/capitation")
-def generate_capitation_payouts(
-    body: CapitationFundingRequest,
-    principal: Principal = Depends(get_principal),
-    session: Session = Depends(get_session),
-):
-    _guard(principal)
-    rows = compute_capitation_payouts(
-        session,
-        period=body.period,
-        per_student_rate=body.per_student_rate,
-        campus_id=body.campus_id,
+@router.get("/exam-events")
+def exam_events(limit: int = 100, db: Session = Depends(get_db)):
+    rows = (
+        db.execute(
+            select(ExamSubmissionEvent).order_by(ExamSubmissionEvent.published_at.desc()).limit(min(limit, 200))
+        )
+        .scalars()
+        .all()
     )
-    return [
-        {"payout_id": str(r.id), "campus_id": str(r.campus_id), "amount": str(r.amount), "status": r.status}
-        for r in rows
-    ]
+    return {
+        "events": [
+            {
+                "id": e.id,
+                "school_id": e.school_id,
+                "class_id": e.class_id,
+                "subject_id": e.subject_id,
+                "exam_name": e.exam_name,
+                "records_released": e.records_released,
+                "published_by": e.published_by,
+                "published_at": e.published_at.isoformat() if e.published_at else None,
+            }
+            for e in rows
+        ]
+    }
 
 
-@router.post("/payouts/{payout_id}/approve")
-def approve(
-    payout_id: uuid.UUID,
-    principal: Principal = Depends(get_principal),
-    session: Session = Depends(get_session),
+@router.get("/schools")
+def schools_list(db: Session = Depends(get_db)):
+    rows = db.execute(select(PrivateSchool).order_by(PrivateSchool.school_name)).scalars().all()
+    return {
+        "schools": [
+            {
+                "id": s.id,
+                "school_name": s.school_name,
+                "state_license_number": s.state_license_number,
+                "accreditation_status": s.accreditation_status,
+                "contact_phone": s.contact_phone,
+            }
+            for s in rows
+        ]
+    }
+
+
+@router.post("/audit/run")
+def run_red_alarm_audit(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_state),
 ):
-    _guard(principal)
-    row = approve_payout(session, payout_id=payout_id, approved_by=principal.manager_id or principal.user_id)
-    return {"payout_id": str(row.id), "status": row.status, "approved_at": row.approved_at.isoformat()}
-
-
-class SettleRequest(BaseModel):
-    ledger_ref: str
-
-
-@router.post("/payouts/{payout_id}/settle")
-def settle(
-    payout_id: uuid.UUID,
-    body: SettleRequest,
-    principal: Principal = Depends(get_principal),
-    session: Session = Depends(get_session),
-):
-    _guard(principal)
-    row = settle_payout(session, payout_id=payout_id, ledger_ref=body.ledger_ref)
-    return {"payout_id": str(row.id), "status": row.status, "paid_at": row.paid_at.isoformat()}
-
-
-@router.get("/payroll-tiers")
-def list_tiers(
-    principal: Principal = Depends(get_principal),
-    session: Session = Depends(get_session),
-):
-    _guard(principal)
-    tiers = session.scalars(select(CivilServiceGrade).order_by(CivilServiceGrade.grade_tier)).all()
-    return [
-        {
-            "grade_tier": t.grade_tier,
-            "base_salary_naira": str(t.base_salary_naira),
-            "hardship_multiplier": str(t.hardship_multiplier),
-        }
-        for t in tiers
-    ]
+    """Manually trigger the Phase 2 15:00 worker (normally cron-driven)."""
+    raised = process_daily_attendance_deadlines(db)
+    return {"ran_by": user.email, "ran_at": dt.datetime.now(dt.timezone.utc).isoformat(), "red_alarms_raised": len(raised), "alarms": raised}

@@ -3,262 +3,78 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NE-EMIS · State Education Management Console</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <title>SomTech — Private School Management & State Compliance Monitoring</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="sidebar">
+  <!-- ================= LOGIN ================= -->
+  <section id="loginView" class="login-wrap">
+    <div class="login-card">
       <div class="brand">
-        <div class="brand-mark">N</div>
+        <div class="brand-badge">SOM</div>
         <div>
-          <div class="brand-title">NE-EMIS</div>
-          <div class="brand-sub">National EMS</div>
+          <h1>SomTech SchoolSystem</h1>
+          <p>Private School Management &amp; State Compliance Monitoring Platform</p>
         </div>
       </div>
-
-      <div class="role-chip">
-        <span class="dot dot-green"></span> State Admin · Demo
+      <form id="loginForm" class="login-form">
+        <label>Email
+          <input type="email" id="loginEmail" placeholder="you@portal.gov" required />
+        </label>
+        <label>Password
+          <input type="password" id="loginPassword" placeholder="••••••••" required />
+        </label>
+        <button type="submit" class="btn btn-primary btn-block" id="loginBtn">Sign in</button>
+        <p id="loginError" class="login-error hidden"></p>
+      </form>
+      <div class="demo-accounts">
+        <p class="demo-title">Demo accounts (click to fill)</p>
+        <button class="demo-chip" data-email="inspector@education.gov" data-pass="State@2026">
+          🏛️ State Inspector <span>inspector@education.gov</span>
+        </button>
+        <button class="demo-chip" data-email="manager@greenfield.edu" data-pass="School@2026">
+          🏫 School Manager — Greenfield <span>manager@greenfield.edu</span>
+        </button>
+        <button class="demo-chip" data-email="teacher@greenfield.edu" data-pass="Teach@2026">
+          👩‍🏫 Teacher — Greenfield <span>teacher@greenfield.edu</span>
+        </button>
+        <button class="demo-chip" data-email="manager@horizon.edu" data-pass="School@2026">
+          🚨 School Manager — Horizon (non-compliant) <span>manager@horizon.edu</span>
+        </button>
       </div>
+    </div>
+  </section>
 
-      <nav class="nav" id="nav">
-        <button class="nav-item active" data-tab="overview">Overview</button>
-        <button class="nav-item" data-tab="students">Student Registry</button>
-        <button class="nav-item" data-tab="teachers">Teacher Governance</button>
-        <button class="nav-item" data-tab="attendance">Attendance &amp; Grades</button>
-        <button class="nav-item" data-tab="locks">Audit &amp; Lock</button>
-        <button class="nav-item" data-tab="aggregation">Aggregation</button>
-        <button class="nav-item" data-tab="funding">Funding &amp; Payroll</button>
-      </nav>
-
-      <div class="sidebar-foot">
-        <div class="foot-item">
-          <span class="foot-label">Last Nightly Run</span>
-          <span class="foot-value" id="last-run">—</span>
-        </div>
-        <div class="foot-item">
-          <span class="foot-label">API Status</span>
-          <span class="foot-value"><span class="dot dot-green"></span> Live</span>
-        </div>
-      </div>
-    </aside>
-
-    <main class="main">
-      <header class="topbar">
+  <!-- ================= APP SHELL ================= -->
+  <div id="appView" class="app-shell hidden">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand-badge small">SOM</div>
         <div>
-          <div class="crumb">State Control / <strong id="crumb-current">Overview</strong></div>
-          <h1 id="page-title">Education Oversight Dashboard</h1>
+          <strong id="topTitle">SomTech SchoolSystem</strong>
+          <span class="topbar-sub" id="topSub"></span>
         </div>
-        <div class="topbar-actions">
-          <div class="period-select">
-            <span>Academic Year</span>
-            <select id="year"><option>2025/2026</option><option>2024/2025</option></select>
-          </div>
-          <button class="btn btn-primary" id="run-aggregation">▶ Run Aggregation</button>
-        </div>
-      </header>
-
-      <div class="demo-banner" id="demo-banner">
-        <strong>Live demo</strong> — interactive in-memory prototype of the NE-EMIS four-phase pipeline. Actions update the session immediately.
       </div>
+      <div class="topbar-right">
+        <span class="ws-pill" id="wsPill"><span class="dot"></span> connecting…</span>
+        <span class="whoami" id="whoami"></span>
+        <button class="btn btn-ghost" id="logoutBtn">Sign out</button>
+      </div>
+    </header>
 
-      <section class="tab active" id="tab-overview">
-        <div class="stats-grid" id="kpi-cards">
-          <div class="card stat">
-            <div class="stat-label">Enrolled Students</div>
-            <div class="stat-value" id="kpi-students">—</div>
-            <div class="stat-foot" id="kpi-students-foot">—</div>
-          </div>
-          <div class="card stat">
-            <div class="stat-label">Active Teachers</div>
-            <div class="stat-value" id="kpi-teachers">—</div>
-            <div class="stat-foot" id="kpi-teachers-foot">—</div>
-          </div>
-          <div class="card stat">
-            <div class="stat-label">Attendance Rate</div>
-            <div class="stat-value" id="kpi-attendance">—</div>
-            <div class="stat-foot" id="kpi-attendance-foot">—</div>
-          </div>
-          <div class="card stat">
-            <div class="stat-label">Open Teacher Vacancies</div>
-            <div class="stat-value" id="kpi-vacancies">—</div>
-            <div class="stat-foot" id="kpi-vacancies-foot">—</div>
-          </div>
-          <div class="card stat">
-            <div class="stat-label">Record Locked</div>
-            <div class="stat-value" id="kpi-locks">—</div>
-            <div class="stat-foot" id="kpi-locks-foot">—</div>
-          </div>
-          <div class="card stat">
-            <div class="stat-label">Funding Released</div>
-            <div class="stat-value" id="kpi-funding">—</div>
-            <div class="stat-foot" id="kpi-funding-foot">—</div>
-          </div>
-        </div>
+    <div id="alarmBanner" class="alarm-banner hidden">
+      <span id="alarmBannerText"></span>
+      <button class="banner-close" onclick="this.parentElement.classList.add('hidden')">✕</button>
+    </div>
 
-        <div class="panel-grid">
-          <div class="card">
-            <div class="card-head">
-              <h3>Attendance Trend (last 5 school days)</h3>
-              <span class="badge badge-green">Phase 1</span>
-            </div>
-            <div class="chart" id="attendance-chart"></div>
-          </div>
-          <div class="card">
-            <div class="card-head">
-              <h3>Campus Distribution</h3>
-              <span class="badge">Regional</span>
-            </div>
-            <div id="campus-bars" class="campus-bars"></div>
-          </div>
-        </div>
-
-        <div class="panel-grid">
-          <div class="card">
-            <div class="card-head">
-              <h3>Pipeline Status</h3>
-              <span class="badge badge-green">Live</span>
-            </div>
-            <ol class="pipeline">
-              <li class="done"><span>1</span> Ingestion <small>Real-time validation, clerk writes</small></li>
-              <li class="done"><span>2</span> Dean Lock <small>Ed25519 signatures freeze records</small></li>
-              <li class="active"><span>3</span> Nightly Aggregation <small>Compiles locked logs into state registry</small></li>
-              <li><span>4</span> State Control <small>KPIs, funding, teacher reallocation</small></li>
-            </ol>
-          </div>
-          <div class="card">
-            <div class="card-head">
-              <h3>Most Recent Lock Activity</h3>
-              <button class="link" data-goto="locks">View all →</button>
-            </div>
-            <div id="recent-locks" class="recent-list"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="tab" id="tab-students">
-        <div class="card">
-          <div class="card-head">
-            <h3>Student Registry &amp; Mobility Matrix</h3>
-            <span class="badge" id="student-count"></span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>NE-SID</th><th>Student</th><th>Gender</th><th>Grade</th><th>Campus</th><th>GPA</th><th>Attendance</th><th>Truancy</th><th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="students-body"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="tab" id="tab-teachers">
-        <div class="card">
-          <div class="card-head">
-            <h3>Teacher &amp; Payroll Governance</h3>
-            <span class="badge" id="teacher-count"></span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>NE-TID</th><th>Teacher</th><th>Campus</th><th>Subject</th><th>Grade Tier</th><th>Weekly Hrs</th><th>Police Clearance</th><th>Certification</th><th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="teachers-body"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="tab" id="tab-attendance">
-        <div class="panel-grid">
-          <div class="card">
-            <div class="card-head"><h3>Daily Attendance Log</h3><span class="badge badge-green">Phase 1</span></div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Date</th><th>Present</th><th>Absent</th><th>Late</th><th>Truant</th><th>Rate</th></tr></thead>
-                <tbody id="attendance-body"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-head"><h3>Ingestion Console</h3><span class="badge">Clerk API</span></div>
-            <p class="muted">Simulates a Phase-1 collection: format validation then commit.</p>
-            <button class="btn btn-secondary w-full" id="ingest-btn">Run Sample Ingestion</button>
-            <div id="ingest-result" class="result-box">Not run yet.</div>
-          </div>
-        </div>
-      </section>
-
-      <section class="tab" id="tab-locks">
-        <div class="card">
-          <div class="card-head">
-            <h3>Cryptographic Record Locks</h3>
-            <span class="badge badge-green">Phase 2</span>
-          </div>
-          <div class="banner-warn">Once a dean signs a record, the NE-EMIS freeze trigger prevents any later UPDATE/DELETE. State unlock requires a counter-signature.</div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Entity</th><th>Campus</th><th>Period / Ref</th><th>SHA-256</th><th>Dean</th><th>Locked At</th><th>Status</th><th></th></tr></thead>
-              <tbody id="locks-body"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="tab" id="tab-aggregation">
-        <div class="panel-grid">
-          <div class="card">
-            <div class="card-head"><h3>Overnight Aggregation Batches</h3><span class="badge badge-blue">Phase 3</span></div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Batch ID</th><th>Date</th><th>Phase</th><th>State</th><th>Students</th><th>Teachers</th><th>Finished</th></tr></thead>
-                <tbody id="batches-body"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-head"><h3>Central State Registries</h3><span class="badge badge-blue">Read Model</span></div>
-            <ul class="registry-list">
-              <li><span class="tag">student_registry</span> 1,248 students · schooling history tree + GPA trend</li>
-              <li><span class="tag">teacher_registry</span> 96 teachers · qualifications + certifications + payroll</li>
-              <li><span class="tag">kpi_rollups</span> per-campus KPIs for regional oversight</li>
-              <li><span class="tag">funding_payouts</span> automated capitation + payroll payouts</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <section class="tab" id="tab-funding">
-        <div class="panel-grid">
-          <div class="card">
-            <div class="card-head"><h3>Automated Funding Payouts</h3><span class="badge badge-green">Phase 4</span></div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Campus</th><th>Period</th><th>Type</th><th>Amount</th><th>Status</th><th>Ref</th><th></th></tr></thead>
-                <tbody id="funding-body"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-head"><h3>Payroll Ledger</h3><span class="badge">Governance</span></div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Teacher</th><th>Campus</th><th>Tier</th><th>Hours</th><th>Gross</th><th>Net</th><th>Status</th></tr></thead>
-                <tbody id="payroll-body"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
+    <div class="body-grid">
+      <nav class="sidenav" id="sidenav"></nav>
+      <main class="content" id="content"></main>
+    </div>
   </div>
 
-  <div class="toast" id="toast"></div>
-  <script src="/app.js"></script>
+  <div id="toasts" class="toasts"></div>
+
+  <script src="app.js"></script>
 </body>
 </html>

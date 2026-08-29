@@ -1,66 +1,48 @@
-"""Environment-backed application configuration."""
+"""Application configuration via environment variables (.env supported)."""
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
-from pathlib import Path
-from typing import List
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "NE-EMIS"
-    app_env: str = Field(default="development")
-    log_level: str = Field(default="INFO")
-    api_port: int = Field(default=5000)
+    # --- Core ---
+    app_name: str = "Private School Management & State Compliance Monitoring System"
+    app_env: str = "development"
 
-    # Demo mode: exposes unauthenticated /students list/add backed by a local
-    # SQLite store so the container is explorable without Postgres. Disable in
-    # production (NEEMIS_DEMO_MODE=false) to enforce RLS + JWT.
-    demo_mode: bool = Field(default=True)
-    demo_db_path: str = Field(default="./data/demo_store.db")
+    # --- Database ---
+    # Production: postgresql+psycopg2://school:school@db:5432/schoolsystem
+    # Demo tier (default): SQLite, so the platform boots with zero infra.
+    database_url: str = "sqlite:///./data/schoolsystem.db"
 
-    # Database
-    database_url: str = Field(
-        default="postgresql+psycopg2://neemis:neemis@localhost:5432/neemis"
-    )
+    # --- Auth ---
+    jwt_secret_key: str = "dev-only-secret-rotate-me-in-production"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 480
 
-    # Authentication / JWT
-    # Use HS256 for local development; set RS256 + certificate paths in prod.
-    jwt_algorithm: str = Field(default="HS256")
-    jwt_public_key_path: Path = Field(default=Path("./certs/jwt-public.pem"))
-    jwt_private_key_path: Path = Field(default=Path("./certs/jwt-private.pem"))
-    access_token_expire_minutes: int = Field(default=30)
-    jwt_secret_key: str = Field(default="dev-only-secret-change-me")
+    # --- Compliance engine timings ---
+    attendance_deadline: str = "12:00"   # mandatory daily roster submission deadline
+    alarm_audit_time: str = "15:00"      # 3-hour red alarm audit (3:00 PM)
+    platform_timezone: str = "Africa/Nairobi"
 
-    # CORS
-    allowed_origins: str = Field(default="http://localhost:3000,http://localhost:8000")
+    # --- Behaviour flags ---
+    auto_seed_demo: bool = True          # seed demo data when the DB comes up empty
+    enable_scheduler: bool = True        # run the 15:00 worker loop in-process
 
-    # Record locking
-    lock_algorithm: str = Field(default="Ed25519")
-    lock_key_version: int = Field(default=1)
-    state_unlock_roles: str = Field(default="state_admin,system")
-
-    # Aggregation
-    aggregation_batch_limit: int = Field(default=10_000)
-    aggregation_timezone: str = Field(default="Africa/Lagos")
+    # --- CORS ---
+    cors_origins_raw: str = "*"
 
     @property
-    def cors_origins(self) -> List[str]:
-        return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
-
-    @property
-    def state_unlock_roles_parsed(self) -> List[str]:
-        return [r.strip() for r in self.state_unlock_roles.split(",") if r.strip()]
+    def cors_origins(self) -> list[str]:
+        raw = self.cors_origins_raw.strip()
+        if raw == "*" or not raw:
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
 
 @lru_cache

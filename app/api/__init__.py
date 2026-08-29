@@ -1,1 +1,1 @@
-"""API routers for NE-EMIS."""
+"""API package."""
