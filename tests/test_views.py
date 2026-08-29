@@ -94,4 +94,4 @@ def test_live_attendance_visibility(client, auth_headers):
     assert "records" in body
     for r in body["records"]:
         assert r["status"] in ("Present", "Absent", "Late", "Excused")
-        assert r["national_student_id"].startswith("STU-")
+        assert r["national_student_id"].startswith("NE-SID-")

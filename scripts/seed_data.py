@@ -5,7 +5,9 @@ Automated mock seed data so every analytics panel functions immediately:
   * registers 3 mock private schools (all Active),
   * class tracks spanning Class 1 -> Class 12 for each school,
   * mock student tracking profiles with unique auto-generated National IDs
-    (STU-YYYY-XY123) and guardian phone/email records,
+    (NE-SID-YYYY-XY123) and guardian phone/email records,
+  * staff profiles carrying NE-MID (manager) / NE-TID (teacher) identifiers,
+    direct phone numbers and qualifications for the institutional directory,
   * realistic sample attendance HISTORIES for the past school days with
     submitted daily logs (plus one historical RED ALARM breach day), and
   * published examination grades carrying exam_submission_events tokens.
@@ -27,6 +29,7 @@ from app.models import (
     CommunicationLog,
     DailySubmissionLog,
     ExamSubmissionEvent,
+    FEE_STATUSES,
     LiveAttendance,
     PaymentTransaction,
     PrivateSchool,
@@ -38,6 +41,7 @@ from app.models import (
     TuitionRate,
     User,
 )
+from app.services.student_id import generate_unique_staff_identifier
 from app.services.student_id import generate_unique_national_student_id
 
 rng = random.Random(2026)
@@ -52,6 +56,13 @@ LAST_NAMES = [
     "Mohamed", "Nur", "Warsame", "Diriye", "Gedi", "Hersi", "Jama", "Kahin",
 ]
 GUARDIAN_REL = ["Mother", "Father", "Uncle", "Aunt", "Grandmother", "Grandfather"]
+DISTRICTS = [
+    "Subulaha", "Waabari", "Suldaan Yuusuf", "Daami",
+    "Xero Awr", "Maxamuud Haybe", "Gacan Libaax", "Jireeye",
+]
+# Weighted so the Tuition Status Breakdown widget shows a realistic spread
+# rather than four equal quarters.
+FEE_STATUS_WEIGHTS = {"PAID": 46, "PENDING": 22, "NOT_PAID": 24, "SCHOLARSHIP": 8}
 CLASS_TRACKS = [f"Class {n}" for n in range(1, 13)]  # Class 1 -> Class 12
 PUBLISHED_EXAM = "End of Term 1"
 DRAFT_EXAM = "Mid-Term 1"
@@ -181,6 +192,11 @@ def seed(session: Session) -> None:
             role="school_manager",
             first_name="Ibrahim",
             last_name=cfg["school_name"].split()[0],
+            staff_identifier=generate_unique_staff_identifier(session, "school_manager", enroll_year),
+            phone=f"+252-63-{rng.randint(4200000, 4299999)}",
+            qualifications="M.Ed Educational Leadership — University of Hargeisa",
+            designation="Principal",
+            is_active=True,
         )
         teacher = User(
             school_id=school.id,
@@ -189,6 +205,11 @@ def seed(session: Session) -> None:
             role="teacher",
             first_name="Hodan",
             last_name="Adan",
+            staff_identifier=generate_unique_staff_identifier(session, "teacher", enroll_year),
+            phone=f"+252-63-{rng.randint(4300000, 4399999)}",
+            qualifications="B.Ed (Science) — University of Hargeisa",
+            designation="Senior Subject Teacher",
+            is_active=True,
         )
         session.add_all([manager, teacher])
         session.flush()
@@ -243,6 +264,14 @@ def seed(session: Session) -> None:
                     guardian_phone=f"+252-63-{rng.randint(4000000, 4199999)}",
                     guardian_email=f"guardian.{last.lower()}{i}@mail.so",
                     emergency_contact_phone=f"+252-63-{rng.randint(5000000, 5199999)}",
+                    physical_address=(
+                        f"House No. {rng.randint(1, 240)}, {rng.choice(DISTRICTS)} District, "
+                        f"{cfg['physical_address'].split(', ')[-1]}"
+                    ),
+                    fee_status=rng.choices(
+                        list(FEE_STATUS_WEIGHTS.keys()),
+                        weights=list(FEE_STATUS_WEIGHTS.values()),
+                    )[0],
                     enrollment_date=today - dt.timedelta(days=rng.randint(30, 400)),
                     is_active=True,
                 )
@@ -410,23 +439,30 @@ def seed(session: Session) -> None:
         all_students = [s for roster in students_by_class.values() for s in roster]
         for student in rng.sample(all_students, k=min(12, len(all_students))):
             amount = round(rng.uniform(120, 420), 2)
-            scenario = rng.choice(["settled", "partial", "outstanding", "overdue"])
+            scenario = rng.choice(
+                ["settled", "partial", "outstanding", "overdue", "scholarship"]
+            )
             if scenario == "settled":
                 paid = amount
                 due = today - dt.timedelta(days=rng.randint(1, 15))
-                status = "Settled"
+                status = "PAID"
             elif scenario == "partial":
                 paid = round(amount * rng.choice([0.25, 0.5, 0.75]), 2)
                 due = today + dt.timedelta(days=rng.randint(5, 30))
-                status = "Partially_Paid"
+                status = "PENDING"
             elif scenario == "overdue":
                 paid = 0
                 due = today - dt.timedelta(days=rng.randint(3, 25))
-                status = "Overdue"
+                status = "NOT_PAID"
+            elif scenario == "scholarship":
+                # Fully sponsored: nothing owed, no cash receipt.
+                paid = amount
+                due = today + dt.timedelta(days=rng.randint(10, 60))
+                status = "SCHOLARSHIP"
             else:
                 paid = 0
                 due = today + dt.timedelta(days=rng.randint(5, 40))
-                status = "Outstanding"
+                status = "PENDING"
             description = rng.choice(
                 [
                     f"Term 1 tuition — {student.first_name} {student.last_name}",

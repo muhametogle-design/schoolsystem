@@ -43,8 +43,57 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+#: Columns introduced after the initial release. `create_all` only creates
+#: missing *tables*, never missing columns — without this, an existing demo
+#: database would never pick up the NE-SID / fee-status / staff-profile fields.
+COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("users", "staff_identifier", "VARCHAR(30)"),
+    ("users", "phone", "VARCHAR(50)"),
+    ("users", "qualifications", "TEXT"),
+    ("users", "designation", "VARCHAR(100)"),
+    ("users", "is_active", "BOOLEAN DEFAULT 1"),
+    ("students", "physical_address", "TEXT"),
+    ("students", "fee_status", "VARCHAR(20) DEFAULT 'NOT_PAID'"),
+)
+
+
+def _existing_columns(connection, table: str) -> set[str]:
+    """Column names currently present on `table` (SQLite + PostgreSQL)."""
+    if IS_SQLITE:
+        rows = connection.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+        return {row[1] for row in rows}
+    rows = connection.exec_driver_sql(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+        (table,),
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
+def _table_exists(connection, table: str) -> bool:
+    if IS_SQLITE:
+        row = connection.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+    else:
+        row = connection.exec_driver_sql(
+            "SELECT tablename FROM pg_tables WHERE tablename = %s", (table,)
+        ).fetchone()
+    return row is not None
+
+
+def apply_column_migrations() -> None:
+    """Idempotently add any missing columns to pre-existing tables."""
+    with engine.begin() as connection:
+        for table, column, ddl in COLUMN_MIGRATIONS:
+            if not _table_exists(connection, table):
+                continue
+            if column in _existing_columns(connection, table):
+                continue
+            connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
 def init_db() -> None:
-    """Create tables from the ORM metadata.
+    """Create tables from the ORM metadata, then add any missing columns.
 
     On PostgreSQL, prefer running sql/001_schema.sql + 002_security_firewall.sql
     + 003_analytics_views.sql as the authoritative Phase 1 DDL; metadata.create_all
@@ -53,3 +102,4 @@ def init_db() -> None:
     from app.models import Base  # noqa: F401  (imports every model)
 
     Base.metadata.create_all(bind=engine)
+    apply_column_migrations()
