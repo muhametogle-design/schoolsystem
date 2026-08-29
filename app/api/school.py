@@ -223,45 +223,6 @@ def list_students(
     }
 
 
-@router.post("/students", status_code=201)
-def register_student(payload: StudentCreate, user: User = Depends(erp_write), db: Session = Depends(get_db)):
-    klass = (
-        db.query(SchoolClass)
-        .filter_by(id=payload.current_class_id, school_id=user.school_id)
-        .one_or_none()
-    )
-    if not klass:
-        raise HTTPException(404, "Class not found in this school")
-
-    enrollment_year = payload.enrollment_year or str(dt.date.today().year)
-    national_id = generate_unique_national_student_id(db, enrollment_year=enrollment_year)
-
-    student = Student(
-        school_id=user.school_id,
-        national_student_id=national_id,
-        current_class_id=klass.id,
-        first_name=payload.first_name.strip(),
-        last_name=payload.last_name.strip(),
-        date_of_birth=payload.date_of_birth,
-        gender=payload.gender,
-        guardian_name=payload.guardian_name,
-        guardian_relationship=payload.guardian_relationship,
-        guardian_phone=payload.guardian_phone,
-        guardian_email=payload.guardian_email,
-        emergency_contact_phone=payload.emergency_contact_phone,
-        enrollment_date=dt.date.today(),
-        is_active=True,
-    )
-    db.add(student)
-    db.commit()
-    return {
-        "id": student.id,
-        "national_student_id": student.national_student_id,
-        "class_label": _class_label(klass),
-        "message": f"Student registered with immutable national tracking ID {student.national_student_id}",
-    }
-
-
 # --------------------------------------------------------------------------- #
 # Live attendance + mandatory daily roster submission
 # --------------------------------------------------------------------------- #

@@ -41,6 +41,8 @@ class StudentCreate(BaseModel):
     guardian_phone: str | None = None
     guardian_email: str | None = None
     emergency_contact_phone: str | None = None
+    physical_address: str | None = None
+    fee_status: str = Field(default="NOT_PAID", pattern="^(PAID|PENDING|NOT_PAID|SCHOLARSHIP)$")
     enrollment_year: str = Field(default="2026", pattern="^[0-9]{4}$")
 
 
@@ -60,6 +62,28 @@ class StudentRead(BaseModel):
     guardian_email: str | None
     emergency_contact_phone: str | None
     is_active: bool
+
+
+# --- NE-EMIS: fee status & student profile editing ---
+FEE_STATUS_VALUES = ("PAID", "PENDING", "NOT_PAID", "SCHOLARSHIP")
+
+
+class StudentUpdate(BaseModel):
+    """Partial update payload for the Student Details page / create drawer."""
+
+    first_name: str | None = Field(default=None, min_length=1, max_length=100)
+    last_name: str | None = Field(default=None, min_length=1, max_length=100)
+    current_class_id: int | None = None
+    date_of_birth: dt.date | None = None
+    gender: str | None = Field(default=None, pattern="^(Male|Female|Other)$")
+    guardian_name: str | None = None
+    guardian_relationship: str | None = None
+    guardian_phone: str | None = None
+    guardian_email: str | None = None
+    emergency_contact_phone: str | None = None
+    physical_address: str | None = None
+    fee_status: str | None = Field(default=None, pattern="^(PAID|PENDING|NOT_PAID|SCHOLARSHIP)$")
+    is_active: bool | None = None
 
 
 # --- Classes / subjects ---

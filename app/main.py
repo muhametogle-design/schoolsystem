@@ -20,7 +20,17 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, billing, health, school, state, ws
+from app.api import (
+    analytics,
+    auth,
+    billing,
+    health,
+    school,
+    state,
+    state_oversight,
+    students,
+    ws,
+)
 from app.core.config import settings
 from app.core.db import SessionLocal, init_db, IS_SQLITE
 
@@ -122,6 +132,11 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(state.router)
 app.include_router(school.router)
+# NE-EMIS: student profiles, school analytics and state institutional oversight.
+# Registered after `school` so the class-grouped and NE-SID routes win.
+app.include_router(students.router)
+app.include_router(analytics.router)
+app.include_router(state_oversight.router)
 app.include_router(billing.router)
 app.include_router(ws.router)
 

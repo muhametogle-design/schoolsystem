@@ -188,8 +188,18 @@ def view_c_grade_analytics(
     ]
 
 
-def state_live_attendance_feed(database_session: Session, *, school_id: int | None, target_date: dt.date | None = None) -> list[dict]:
-    """Read-only state visibility into live attendance logs."""
+def state_live_attendance_feed(
+    database_session: Session,
+    *,
+    school_id: int | None,
+    target_date: dt.date | None = None,
+    class_level: str | None = None,
+) -> list[dict]:
+    """Read-only state visibility into live attendance logs.
+
+    `class_level` drives the Class 1-12 filter dropdown on the state's live
+    attendance monitor.
+    """
     target_date = target_date or dt.date.today()
     stmt = (
         select(
@@ -211,6 +221,8 @@ def state_live_attendance_feed(database_session: Session, *, school_id: int | No
     )
     if school_id is not None:
         stmt = stmt.where(LiveAttendance.school_id == school_id)
+    if class_level is not None:
+        stmt = stmt.where(SchoolClass.class_level == class_level)
     rows = database_session.execute(stmt).all()
     return [
         {
