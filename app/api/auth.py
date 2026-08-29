@@ -38,12 +38,18 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
 
     # HttpOnly cookie fallback: survives proxies/frames that strip the
     # Authorization header. The header remains the primary mechanism.
+    #
+    # Embedded contexts (cross-site iframes, e.g. hosted previews) reject
+    # SameSite=lax cookies entirely — set COOKIE_SAMESITE=none to keep sessions
+    # alive there. That combination forces Secure, which is why the flag is
+    # resolved here rather than read straight off the request scheme.
+    samesite = settings.cookie_samesite_value
     response.set_cookie(
         AUTH_COOKIE,
         token,
         httponly=True,
-        samesite="lax",
-        secure=request.url.scheme == "https",
+        samesite=samesite,
+        secure=settings.resolve_cookie_secure(request.url.scheme),
         max_age=settings.access_token_expire_minutes * 60,
         path="/",
     )
@@ -79,7 +85,13 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response):
     """Clear the auth cookie (clients also drop their local token)."""
-    response.delete_cookie(AUTH_COOKIE, path="/")
+    response.delete_cookie(
+        AUTH_COOKIE,
+        path="/",
+        httponly=True,
+        samesite=settings.cookie_samesite_value,
+        secure=settings.resolve_cookie_secure(request.url.scheme),
+    )
     return {"signed_out": True}
