@@ -115,12 +115,37 @@ def global_student_lookup(
     absent = sum(1 for a in attendance_rows if a.status == "Absent")
     late = sum(1 for a in attendance_rows if a.status == "Late")
 
-    # Consecutive absences are flagged as a truancy marker.
-    consecutive = 0
-    max_consecutive = 0
+    # Truancy: any run of 3+ consecutive absences, flagged per entry so the
+    # log itself shows which dates form the run.
+    truancy_dates: set[str] = set()
+    longest_run = 0
+    run: list[str] = []
+
+    def close_run(current: list[str]) -> None:
+        nonlocal longest_run
+        if len(current) >= 3:
+            truancy_dates.update(current)
+        longest_run = max(longest_run, len(current))
+
     for row in sorted(attendance_rows, key=lambda a: a.date):
-        consecutive = consecutive + 1 if row.status == "Absent" else 0
-        max_consecutive = max(max_consecutive, consecutive)
+        if row.status == "Absent":
+            run.append(row.date.isoformat())
+        else:
+            close_run(run)
+            run = []
+    close_run(run)
+
+    # Draft results exist but are withheld by the Exam Data Release Valve.
+    total_marks = (
+        db.query(func.count(StudentGrade.id)).filter_by(student_id=student.id).scalar()
+    )
+    withheld_rows = (
+        db.query(StudentGrade.exam_name)
+        .filter_by(student_id=student.id, is_published=False)
+        .distinct()
+        .all()
+    )
+    withheld_exams = sorted({name for (name,) in withheld_rows})
 
     return {
         "ne_sid": student.national_student_id,
@@ -153,12 +178,26 @@ def global_student_lookup(
             "days_absent": absent,
             "days_late": late,
             "attendance_pct": round(present / recorded * 100, 1) if recorded else None,
-            "longest_absence_run": max_consecutive,
-            "truancy_flag": max_consecutive >= 3,
+            "longest_absence_run": longest_run,
+            "truancy_flag": longest_run >= 3,
+            "truancy_dates": len(truancy_dates),
         },
         "attendance_log": [
-            {"date": a.date.isoformat(), "status": a.status} for a in attendance_rows[:120]
+            {
+                "date": a.date.isoformat(),
+                "status": a.status,
+                "truancy": a.date.isoformat() in truancy_dates,
+            }
+            for a in attendance_rows[:400]
         ],
+        "withheld": {
+            "draft_records": int(total_marks or 0) - len(marks),
+            "exams": withheld_exams,
+            "note": (
+                "Draft results are withheld until the school publishes them "
+                "(Exam Data Release Valve)."
+            ),
+        },
         # Explicit: the financial tier is never reachable from a state route.
         "financial_data": "RESTRICTED — state roles cannot access financial records",
     }

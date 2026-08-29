@@ -152,6 +152,17 @@ export default function StudentLookup() {
               <p className="empty">No published results for this student.</p>
             )}
 
+            {result.withheld?.draft_records > 0 && (
+              <p className="alert alert--muted">
+                {result.withheld.draft_records} draft record(s) withheld by the Exam Data
+                Release Valve
+                {result.withheld.exams.length
+                  ? ` — ${result.withheld.exams.join(', ')}`
+                  : ''}
+                . They appear here once the school publishes them.
+              </p>
+            )}
+
             {result.exams.map((exam) => (
               <div key={exam.exam_name} className="sheet__exam">
                 <header className="sheet__exam-head">
@@ -193,6 +204,7 @@ export default function StudentLookup() {
                 <tr>
                   <th>Date</th>
                   <th>Status</th>
+                  <th>Truancy</th>
                 </tr>
               </thead>
               <tbody>
@@ -201,6 +213,13 @@ export default function StudentLookup() {
                     <td className="mono">{entry.date}</td>
                     <td>
                       <Badge status={entry.status}>{entry.status}</Badge>
+                    </td>
+                    <td>
+                      {entry.truancy ? (
+                        <Badge status="NOT_PAID">Truancy run</Badge>
+                      ) : (
+                        <span className="card__hint">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

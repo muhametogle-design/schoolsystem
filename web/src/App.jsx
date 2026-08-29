@@ -73,6 +73,8 @@ export default function App() {
         <Route path="/school" element={<SchoolDashboard />} />
         <Route path="/school/students" element={<Students />} />
         <Route path="/school/students/:neSid" element={<StudentDetails />} />
+        {/* Canonical report-card path from the brief. */}
+        <Route path="/students/:neSid/report-card" element={<ReportCard />} />
         <Route path="/school/attendance" element={<Attendance />} />
       </Route>
 

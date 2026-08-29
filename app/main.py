@@ -162,11 +162,14 @@ if HAS_REACT_BUILD:
 
     # Client-side routes must all resolve to the shell so a page refresh (or a
     # bookmarked /students/NE-SID-… deep link) still boots the SPA.
+    # `/students/…` is the spec's canonical report-card path; it is served
+    # alongside the /school/… and /state/… client routes.
     @app.get("/", include_in_schema=False)
     @app.get("/school", include_in_schema=False)
     @app.get("/school/{full_path:path}", include_in_schema=False)
     @app.get("/state", include_in_schema=False)
     @app.get("/state/{full_path:path}", include_in_schema=False)
+    @app.get("/students/{full_path:path}", include_in_schema=False)
     async def react_shell() -> FileResponse:
         return FileResponse(_REACT_DIR / "index.html")
 
