@@ -18,6 +18,10 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 async function api(path, { method = "GET", body } = {}) {
   const res = await fetch(path, {
     method,
+    // `include` guarantees the HttpOnly session cookie is sent, which is the
+    // only auth mechanism that survives reverse proxies and embedded frames
+    // that strip the Authorization header.
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(API.token ? { Authorization: `Bearer ${API.token}` } : {}),

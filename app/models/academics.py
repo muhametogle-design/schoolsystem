@@ -25,6 +25,11 @@ from app.models.base import Base
 CLASS_LEVELS = tuple(f"Class {n}" for n in range(1, 13))
 ATTENDANCE_STATUSES = ("Present", "Absent", "Late", "Excused")
 
+#: Tuition fee standing for a student, surfaced by the Tuition Status
+#: Breakdown widget on the School Manager dashboard. `SCHOLARSHIP` covers
+#: fully sponsored students who owe nothing but are not "PAID" in cash terms.
+FEE_STATUSES = ("PAID", "PENDING", "NOT_PAID", "SCHOLARSHIP")
+
 
 class SchoolClass(Base):
     __tablename__ = "school_classes"
@@ -51,8 +56,13 @@ class Student(Base):
     __table_args__ = (
         Index("idx_student_search_national_id", "national_student_id"),
         Index("idx_student_names", "last_name", "first_name"),
+        Index("idx_student_fee_status", "school_id", "fee_status"),
         CheckConstraint(
             "gender IN ('Male', 'Female', 'Other') OR gender IS NULL", name="chk_gender"
+        ),
+        CheckConstraint(
+            "fee_status IN (%s) OR fee_status IS NULL" % ", ".join(f"'{s}'" for s in FEE_STATUSES),
+            name="chk_fee_status",
         ),
     )
 
@@ -69,6 +79,10 @@ class Student(Base):
     guardian_phone: Mapped[str | None] = mapped_column(String(50))
     guardian_email: Mapped[str | None] = mapped_column(String(255))
     emergency_contact_phone: Mapped[str | None] = mapped_column(String(50))
+    physical_address: Mapped[str | None] = mapped_column(Text)
+    #: PAID | PENDING | NOT_PAID | SCHOLARSHIP — drives the Tuition Status
+    #: Breakdown widget and the fee collection matrix.
+    fee_status: Mapped[str] = mapped_column(String(20), default="NOT_PAID", nullable=False)
     enrollment_date: Mapped[dt.date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())

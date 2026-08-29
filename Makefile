@@ -1,10 +1,18 @@
-.PHONY: install dev test seed docker psql clean
+.PHONY: install dev web web-build web-dev test seed docker psql clean
 
 install:
 	pip install -r requirements-dev.txt
 
 dev: ## Run the API + dashboard locally on SQLite demo tier (http://localhost:8000)
 	python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+web: web-build dev ## Build the React workspace first, then serve it on :8000
+
+web-build: ## Build the React SPA into web/dist (served by FastAPI at /)
+	cd web && npm install && npm run build
+
+web-dev: ## React dev server on :5173 with /api + /ws proxied to :8000
+	cd web && npm run dev
 
 seed:
 	python scripts/seed_data.py

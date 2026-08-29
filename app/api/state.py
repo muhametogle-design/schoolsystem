@@ -68,11 +68,18 @@ def grade_analytics(
 @router.get("/attendance/live")
 def live_attendance(
     school_id: int | None = None,
+    class_level: str | None = Query(default=None, description="e.g. 'Class 7' — Class 1 to 12 filter"),
     date: dt.date | None = None,
     db: Session = Depends(get_db),
 ):
     """Read-only state visibility into live attendance logs."""
-    return {"date": (date or dt.date.today()).isoformat(), "records": state_live_attendance_feed(db, school_id=school_id, target_date=date)}
+    return {
+        "date": (date or dt.date.today()).isoformat(),
+        "filtered_class_level": class_level,
+        "records": state_live_attendance_feed(
+            db, school_id=school_id, target_date=date, class_level=class_level
+        ),
+    }
 
 
 @router.get("/alarms")

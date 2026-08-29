@@ -1,4 +1,4 @@
-"""Auto-generated immutable national student tracking IDs (STU-2026-XY123)."""
+"""Auto-generated immutable national student tracking IDs (NE-SID-2026-XY123)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from app.core.db import SessionLocal
 from app.models import PrivateSchool, SchoolClass, Student
 from app.services.student_id import generate_unique_national_student_id
 
-PATTERN = re.compile(r"^STU-2026-[A-Z]{2}\d{3}$")
+PATTERN = re.compile(r"^NE-SID-2026-[A-Z]{2}\d{3}$")
 
 
 def test_id_format_matches_spec():
@@ -35,7 +35,7 @@ def test_generator_retries_on_collision(monkeypatch):
         db.add(
             Student(
                 school_id=school.id,
-                national_student_id="STU-2026-ZZ999",
+                national_student_id="NE-SID-2026-ZZ999",
                 current_class_id=klass.id,
                 first_name="Taken",
                 last_name="Code",
@@ -53,7 +53,7 @@ def test_generator_retries_on_collision(monkeypatch):
     monkeypatch.setattr("app.services.student_id._rng.choices", fake_choices)
     with SessionLocal() as db:
         issued = generate_unique_national_student_id(db, "2026")
-    assert issued == "STU-2026-QQ111", "generator returned a colliding ID instead of retrying"
+    assert issued == "NE-SID-2026-QQ111", "generator returned a colliding ID instead of retrying"
 
 
 def test_registration_endpoint_issues_generated_id(client, greenfield_manager_headers):
@@ -73,7 +73,7 @@ def test_registration_endpoint_issues_generated_id(client, greenfield_manager_he
     )
     assert res.status_code == 201
     body = res.json()
-    assert re.match(r"^STU-\d{4}-[A-Z]{2}\d{3}$", body["national_student_id"])
+    assert re.match(r"^NE-SID-\d{4}-[A-Z]{2}\d{3}$", body["national_student_id"])
 
     # The issued ID resolves through the State-wide lookup engine
     with SessionLocal() as db:

@@ -36,3 +36,11 @@ build/
 *.sqlite3
 postgres-data/
 data/
+
+# Test artifacts
+tests/*.db
+
+# Node / React workspace (web/)
+node_modules/
+web/dist/
+web/.vite/

@@ -20,7 +20,17 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, billing, health, school, state, ws
+from app.api import (
+    analytics,
+    auth,
+    billing,
+    health,
+    school,
+    state,
+    state_oversight,
+    students,
+    ws,
+)
 from app.core.config import settings
 from app.core.db import SessionLocal, init_db, IS_SQLITE
 
@@ -122,13 +132,48 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(state.router)
 app.include_router(school.router)
+# NE-EMIS: student profiles, school analytics and state institutional oversight.
+# Registered after `school` so the class-grouped and NE-SID routes win.
+app.include_router(students.router)
+app.include_router(analytics.router)
+app.include_router(state_oversight.router)
 app.include_router(billing.router)
 app.include_router(ws.router)
 
 
 # ---------------- STEP 4: Interface portal routes ----------------
-# Both workspaces are served by the same SPA, which arms the correct portal
-# from the path + the authenticated role.
+# The React workspace (web/) is the primary interface when it has been built.
+# The original vanilla SPA under frontend/ stays available at /admin/* so an
+# unbuilt checkout still has a working dashboard.
+_REACT_DIR = Path(__file__).resolve().parent.parent / "web" / "dist"
+HAS_REACT_BUILD = (_REACT_DIR / "index.html").exists()
+
+if HAS_REACT_BUILD:
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(_REACT_DIR / "assets")),
+        name="react-assets",
+    )
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def react_favicon() -> FileResponse:
+        icon = _REACT_DIR / "favicon.svg"
+        return FileResponse(icon if icon.exists() else _FRONTEND_DIR / "favicon.svg")
+
+    # Client-side routes must all resolve to the shell so a page refresh (or a
+    # bookmarked /students/NE-SID-… deep link) still boots the SPA.
+    # `/students/…` is the spec's canonical report-card path; it is served
+    # alongside the /school/… and /state/… client routes.
+    @app.get("/", include_in_schema=False)
+    @app.get("/school", include_in_schema=False)
+    @app.get("/school/{full_path:path}", include_in_schema=False)
+    @app.get("/state", include_in_schema=False)
+    @app.get("/state/{full_path:path}", include_in_schema=False)
+    @app.get("/students/{full_path:path}", include_in_schema=False)
+    async def react_shell() -> FileResponse:
+        return FileResponse(_REACT_DIR / "index.html")
+
+
 @app.get("/admin/state", include_in_schema=False)
 @app.get("/admin/school", include_in_schema=False)
 @app.get("/admin", include_in_schema=False)
@@ -136,5 +181,5 @@ async def interface_portal() -> FileResponse:
     return FileResponse(_FRONTEND_DIR / "index.html")
 
 
-if _FRONTEND_DIR.exists():
+if not HAS_REACT_BUILD and _FRONTEND_DIR.exists():
     app.mount("/", StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")

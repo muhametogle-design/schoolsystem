@@ -46,6 +46,15 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(50), nullable=False)  # state_inspector / school_manager / teacher
     first_name: Mapped[str | None] = mapped_column(String(100))
     last_name: Mapped[str | None] = mapped_column(String(100))
+
+    # NE-MID (managers) / NE-TID (teachers) — issued by
+    # app.services.student_id.generate_unique_staff_identifier.
+    staff_identifier: Mapped[str | None] = mapped_column(String(30), unique=True)
+    phone: Mapped[str | None] = mapped_column(String(50))
+    qualifications: Mapped[str | None] = mapped_column(Text)
+    designation: Mapped[str | None] = mapped_column(String(100))  # e.g. "Principal"
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
     created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
 
     school = relationship("PrivateSchool")

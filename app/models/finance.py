@@ -24,7 +24,26 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.models.academics import FEE_STATUSES
 from app.models.base import Base
+
+#: Canonical payment standing for an invoice. Mirrors `Student.fee_status` and
+#: adds SCHOLARSHIP so sponsored students can be tracked without cash receipt.
+PAYMENT_STATUSES = FEE_STATUSES
+
+#: Values written by earlier builds. Accepted at the database level so
+#: pre-existing ledgers keep validating after the rebrand.
+LEGACY_PAYMENT_STATUSES = (
+    "Settled",
+    "Partially_Paid",
+    "Outstanding",
+    "Overdue",
+    "Paid",
+    "Partially Paid",
+    "Void",
+)
+
+ALL_PAYMENT_STATUSES = PAYMENT_STATUSES + LEGACY_PAYMENT_STATUSES
 
 
 class TuitionRate(Base):
@@ -43,6 +62,10 @@ class StudentInvoice(Base):
     __tablename__ = "student_invoices"
     __table_args__ = (
         CheckConstraint("amount_due >= 0", name="chk_amount_due"),
+        CheckConstraint(
+            "status IN (%s)" % ", ".join(f"'{s}'" for s in ALL_PAYMENT_STATUSES),
+            name="chk_invoice_status",
+        ),
         Index("idx_invoices_ledger", "school_id", "status"),
     )
 
@@ -54,7 +77,8 @@ class StudentInvoice(Base):
     amount_due: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     amount_paid: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     due_date: Mapped[dt.date | None] = mapped_column(Date)
-    status: Mapped[str] = mapped_column(String(30), default="Outstanding")
+    #: PAID | PENDING | NOT_PAID | SCHOLARSHIP
+    status: Mapped[str] = mapped_column(String(30), default="NOT_PAID", nullable=False)
     created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
 
     student = relationship("Student")

@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     auto_seed_demo: bool = True          # seed demo data when the DB comes up empty
     enable_scheduler: bool = True        # run the 15:00 worker loop in-process
 
+    # --- Session cookie (fallback when the Authorization header is stripped) ---
+    # Normal same-site deployments want "lax". Embedded/preview contexts
+    # (cross-site iframes) need "none", which browsers only honour with Secure.
+    cookie_samesite: str = "lax"        # lax | strict | none
+    cookie_secure: str = "auto"         # auto | true | false
+
     # --- CORS ---
     cors_origins_raw: str = "*"
 
@@ -48,6 +54,29 @@ class Settings(BaseSettings):
         if raw == "*" or not raw:
             return ["*"]
         return [o.strip() for o in raw.split(",") if o.strip()]
+
+    @property
+    def cookie_samesite_value(self) -> str:
+        """Normalised SameSite value, falling back to 'lax' on anything invalid."""
+        value = (self.cookie_samesite or "lax").strip().lower()
+        return value if value in {"lax", "strict", "none"} else "lax"
+
+    def resolve_cookie_secure(self, request_scheme: str) -> bool:
+        """Resolve the Secure flag.
+
+        'auto' derives it from the request scheme — but behind a TLS-terminating
+        proxy the app sees plain http, so operators can force it with
+        COOKIE_SECURE=true. SameSite=None always forces Secure (browsers reject
+        SameSite=None cookies without it).
+        """
+        if self.cookie_samesite_value == "none":
+            return True
+        mode = (self.cookie_secure or "auto").strip().lower()
+        if mode == "true":
+            return True
+        if mode == "false":
+            return False
+        return request_scheme == "https"
 
 
 @lru_cache
