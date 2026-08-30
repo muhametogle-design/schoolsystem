@@ -14,18 +14,18 @@ def _school_id(name: str) -> int:
         return db.query(PrivateSchool).filter_by(school_name=name).one().id
 
 
-def test_audit_raises_red_alarm_for_non_submitters(client, auth_headers):
-    res = client.post("/api/v1/state/audit/run", headers=auth_headers)
+def test_audit_raises_red_alarm_for_non_submitters(client, state_admin_headers):
+    res = client.post("/api/v1/state/audit/run", headers=state_admin_headers)
     assert res.status_code == 200
     body = res.json()
     alarmed = {a["school_name"] for a in body["alarms"]}
-    assert "Horizon Preparatory School" in alarmed      # never submitted today
-    assert "Greenfield Academy" not in alarmed           # submitted 09:42
-    assert "Crescent International School" not in alarmed  # submitted 11:17
+    assert "Muse Yusuf Secondary School" in alarmed      # never submitted today
+    assert "ALQALAM SCHOOLS" not in alarmed           # submitted 09:42
+    assert "Nugaal High School" not in alarmed  # submitted 11:17
 
 
 def test_alarm_persists_log_and_communication(client):
-    horizon = _school_id("Horizon Preparatory School")
+    horizon = _school_id("Muse Yusuf Secondary School")
     with SessionLocal() as db:
         log = (
             db.query(DailySubmissionLog)
@@ -49,19 +49,19 @@ def test_alarm_persists_log_and_communication(client):
 
 def test_compliance_map_reflects_alarm(client, auth_headers):
     body = client.get("/api/v1/state/compliance-map", headers=auth_headers).json()
-    horizon_row = next(r for r in body["schools"] if r["school_name"] == "Horizon Preparatory School")
+    horizon_row = next(r for r in body["schools"] if r["school_name"] == "Muse Yusuf Secondary School")
     assert horizon_row["is_red_alarm_active"] is True
     assert "RED ALARM" in horizon_row["state_compliance_status"]
     assert body["summary"]["red_alarms"] >= 1
 
 
-def test_red_alarm_is_broadcast_live_over_websockets(client, auth_headers, state_token):
+def test_red_alarm_is_broadcast_live_over_websockets(client, state_admin_headers, state_token):
     """Command-2 regression: a connected State dashboard must receive the
     red_alarm packet in real time when the audit worker fires (the worker
     runs in a sync endpoint thread — the bus must marshal onto the loop)."""
     with client.websocket_connect(f"/ws?token={state_token}") as ws:
         assert ws.receive_json()["type"] == "connected"
-        res = client.post("/api/v1/state/audit/run", headers=auth_headers)
+        res = client.post("/api/v1/state/audit/run", headers=state_admin_headers)
         assert res.status_code == 200
         got_alarm = False
         for _ in range(5):  # connected / red_alarm / audit_completed
@@ -74,13 +74,13 @@ def test_red_alarm_is_broadcast_live_over_websockets(client, auth_headers, state
         assert got_alarm, "red_alarm event never reached the live dashboard socket"
 
 
-def test_late_submission_prevents_future_alarms(client, horizon_manager_headers, auth_headers):
+def test_late_submission_prevents_future_alarms(client, horizon_manager_headers, state_admin_headers):
     """Once the school submits (even after the deadline), the next audit stays quiet."""
-    # Horizon records + submits today's roster through the ERP API
+    # Muse Yusuf records + submits today's roster through the ERP API
     students = client.get(
         "/api/v1/school/students", headers=horizon_manager_headers
     ).json()["students"]
-    assert students, "Horizon has no students"
+    assert students, "Muse Yusuf has no students"
     entries = [{"student_id": s["id"], "status": "Present"} for s in students[:5]]
     class_id = None
     # find one class and submit a valid roster for it
@@ -109,13 +109,13 @@ def test_late_submission_prevents_future_alarms(client, horizon_manager_headers,
     assert res.status_code == 200
     assert res.json()["attendance_submitted"] is True
 
-    # Re-run the audit: Horizon must NOT be re-alarmed
-    body = client.post("/api/v1/state/audit/run", headers=auth_headers).json()
+    # Re-run the audit: Muse Yusuf must NOT be re-alarmed
+    body = client.post("/api/v1/state/audit/run", headers=state_admin_headers).json()
     alarmed = {a["school_name"] for a in body["alarms"]}
-    assert "Horizon Preparatory School" not in alarmed
+    assert "Muse Yusuf Secondary School" not in alarmed
 
     # The historical alarm flag is preserved for the audit trail
-    horizon = _school_id("Horizon Preparatory School")
+    horizon = _school_id("Muse Yusuf Secondary School")
     with SessionLocal() as db:
         log = db.query(DailySubmissionLog).filter_by(school_id=horizon, log_date=dt.date.today()).one()
         assert log.attendance_submitted is True

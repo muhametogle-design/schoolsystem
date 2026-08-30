@@ -29,7 +29,7 @@ export const fetchReportCard = createAsyncThunk('students/reportCard', async (ne
   api(`/api/v1/school/students/${encodeURIComponent(neSid)}/report-card`)
 );
 
-/** Global NE-SID lookup (state portal). */
+/** Global roll-number lookup (state portal; legacy IDs remain supported). */
 export const lookupStudent = createAsyncThunk('students/lookup', async (neSid) =>
   api(`/api/v1/state/students/lookup${qs({ ne_sid: neSid })}`)
 );

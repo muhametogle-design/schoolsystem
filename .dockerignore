@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+.pytest_cache
+__pycache__
+*.py[cod]
+data
+coverage
+htmlcov
+node_modules
+web/node_modules
+web/dist
+tests/_test_schoolsystem.db*
+.env

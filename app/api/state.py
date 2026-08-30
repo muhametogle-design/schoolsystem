@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_state
+from app.api.deps import require_state, require_state_admin
 from app.core.db import get_db
 from app.models import CommunicationLog, ExamSubmissionEvent, PrivateSchool, User
 from app.services.analytics import (
@@ -136,17 +136,27 @@ def exam_events(limit: int = 100, db: Session = Depends(get_db)):
 
 @router.get("/schools")
 def schools_list(db: Session = Depends(get_db)):
-    rows = db.execute(select(PrivateSchool).order_by(PrivateSchool.school_name)).scalars().all()
+    rows = db.execute(
+        select(
+            PrivateSchool.id,
+            PrivateSchool.school_name,
+            PrivateSchool.state_license_number,
+            PrivateSchool.school_code,
+            PrivateSchool.accreditation_status,
+            PrivateSchool.contact_phone,
+        ).order_by(PrivateSchool.school_name)
+    ).all()
     return {
         "schools": [
             {
-                "id": s.id,
-                "school_name": s.school_name,
-                "state_license_number": s.state_license_number,
-                "accreditation_status": s.accreditation_status,
-                "contact_phone": s.contact_phone,
+                "id": school.id,
+                "school_name": school.school_name,
+                "state_license_number": school.state_license_number,
+                "school_code": school.school_code,
+                "accreditation_status": school.accreditation_status,
+                "contact_phone": school.contact_phone,
             }
-            for s in rows
+            for school in rows
         ]
     }
 
@@ -154,8 +164,8 @@ def schools_list(db: Session = Depends(get_db)):
 @router.post("/audit/run")
 def run_red_alarm_audit(
     db: Session = Depends(get_db),
-    user: User = Depends(require_state),
+    user: User = Depends(require_state_admin),
 ):
-    """Manually trigger the Phase 2 15:00 worker (normally cron-driven)."""
+    """Manually trigger the Phase 2 15:00 worker (State Admin only)."""
     raised = process_daily_attendance_deadlines(db)
     return {"ran_by": user.email, "ran_at": dt.datetime.now(dt.timezone.utc).isoformat(), "red_alarms_raised": len(raised), "alarms": raised}

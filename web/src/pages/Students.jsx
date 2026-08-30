@@ -43,7 +43,7 @@ export default function Students() {
           <div className="toolbar">
             <input
               className="input input--search"
-              placeholder="Search name or NE-SID…"
+              placeholder="Search name or roll number…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -75,7 +75,7 @@ export default function Students() {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>NE-SID</th>
+                      <th>Roll no.</th>
                       <th>Student</th>
                       <th>Age</th>
                       <th>Gender</th>
@@ -87,8 +87,16 @@ export default function Students() {
                   <tbody>
                     {group.students.map((student) => (
                       <tr key={student.ne_sid}>
-                        <td className="mono">{student.ne_sid}</td>
-                        <td>{student.full_legal_name}</td>
+                        <td className="mono">{student.roll_number ?? student.ne_sid}</td>
+                        <td>
+                          <Link
+                            className="student-name-link"
+                            to={`/school/students/${student.ne_sid}`}
+                            aria-label={`Open full profile for ${student.full_legal_name}`}
+                          >
+                            {student.full_legal_name}
+                          </Link>
+                        </td>
                         <td>{student.age ?? '—'}</td>
                         <td>{student.gender ?? '—'}</td>
                         <td>

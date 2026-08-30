@@ -39,6 +39,7 @@ def view_a_state_compliance_map(database_session: Session) -> list[dict]:
             PrivateSchool.id.label("school_id"),
             PrivateSchool.school_name,
             PrivateSchool.state_license_number,
+            PrivateSchool.school_code,
             submitted.label("daily_attendance_logged"),
             DailySubmissionLog.attendance_submitted_at.label("time_received"),
             alarmed.label("is_red_alarm_active"),
@@ -66,6 +67,7 @@ def view_a_state_compliance_map(database_session: Session) -> list[dict]:
                 "school_id": r.school_id,
                 "school_name": r.school_name,
                 "state_license_number": r.state_license_number,
+                "school_code": r.school_code,
                 "daily_attendance_logged": bool(r.daily_attendance_logged),
                 "time_received": r.time_received.isoformat() if r.time_received else None,
                 "is_red_alarm_active": bool(r.is_red_alarm_active),
@@ -87,9 +89,11 @@ def view_b_student_lookup(database_session: Session, user_query_input: str) -> l
     rows = database_session.execute(
         select(
             PrivateSchool.school_name,
+            PrivateSchool.school_code,
             SchoolClass.class_level,
             SchoolClass.class_stream,
             Student.national_student_id,
+            Student.roll_number,
             Student.first_name,
             Student.last_name,
             Student.guardian_name,
@@ -102,6 +106,7 @@ def view_b_student_lookup(database_session: Session, user_query_input: str) -> l
         .join(SchoolClass, Student.current_class_id == SchoolClass.id, isouter=True)
         .where(
             (Student.national_student_id == needle)
+            | (Student.roll_number == needle)
             | Student.last_name.ilike(like_pattern)
             | Student.guardian_phone.ilike(like_pattern)
         )
@@ -112,9 +117,11 @@ def view_b_student_lookup(database_session: Session, user_query_input: str) -> l
     return [
         {
             "school_name": r.school_name,
+            "school_code": r.school_code,
             "class_level": r.class_level,
             "class_stream": r.class_stream,
             "national_student_id": r.national_student_id,
+            "roll_number": r.roll_number,
             "first_name": r.first_name,
             "last_name": r.last_name,
             "guardian_name": r.guardian_name,
@@ -207,6 +214,7 @@ def state_live_attendance_feed(
             SchoolClass.class_level,
             SchoolClass.class_stream,
             Student.national_student_id,
+            Student.roll_number,
             Student.first_name,
             Student.last_name,
             LiveAttendance.date,
@@ -229,6 +237,7 @@ def state_live_attendance_feed(
             "school_name": r.school_name,
             "class": f"{r.class_level} {r.class_stream}",
             "national_student_id": r.national_student_id,
+            "roll_number": r.roll_number,
             "student": f"{r.first_name} {r.last_name}",
             "date": r.date.isoformat(),
             "status": r.status,

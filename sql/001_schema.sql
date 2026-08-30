@@ -1,6 +1,6 @@
 -- ============================================================================
 -- PRIVATE SCHOOL MANAGEMENT & STATE COMPLIANCE MONITORING SYSTEM
--- Monolithic Database Schema — PostgreSQL v14+
+-- Monolithic Database Schema — PostgreSQL 16
 --
 -- IMPLEMENTATION PHASE 1
 --
@@ -23,14 +23,30 @@ BEGIN;
 CREATE TABLE private_schools (
     id SERIAL PRIMARY KEY,
     state_license_number VARCHAR(100) UNIQUE NOT NULL,
+    school_code VARCHAR(2) UNIQUE NOT NULL, -- used in roll numbers, e.g. NG-10023
     school_name VARCHAR(255) NOT NULL,
     proprietor_name VARCHAR(255),
     contact_phone VARCHAR(50),
     contact_email VARCHAR(255),
     physical_address TEXT,
     accreditation_status VARCHAR(50) DEFAULT 'Active', -- Active, Probation, Suspended
+    -- Tenant-private billing contacts: never granted to state_readonly.
+    billing_contact_name VARCHAR(255),
+    billing_phone VARCHAR(50),
+    billing_email VARCHAR(255),
+    billing_address TEXT,
+    billing_notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_school_code CHECK (school_code ~ '^[A-Z]{2}$'),
     CONSTRAINT chk_accreditation_status CHECK (accreditation_status IN ('Active', 'Probation', 'Suspended'))
+);
+
+-- Per-tenant monotonically increasing roll number allocator. The State Admin
+-- controls next_value; student registration advances it transactionally.
+CREATE TABLE school_roll_sequences (
+    school_id INT PRIMARY KEY REFERENCES private_schools(id) ON DELETE CASCADE,
+    next_value INT NOT NULL DEFAULT 10000 CHECK (next_value > 0),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE academic_years (
@@ -46,14 +62,20 @@ CREATE TABLE users (
     school_id INT REFERENCES private_schools(id) ON DELETE CASCADE, -- NULL value indicates a State Gov Admin User
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(50) NOT NULL,               -- 'state_inspector', 'school_manager', 'teacher'
+    role VARCHAR(50) NOT NULL,               -- state_admin / inspector / school_manager / teacher
     first_name VARCHAR(100),
     last_name VARCHAR(100),
+    staff_identifier VARCHAR(30) UNIQUE,
+    phone VARCHAR(50),
+    qualifications TEXT,
+    designation VARCHAR(100),
+    bio TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chk_role CHECK (role IN ('state_inspector', 'school_manager', 'teacher')),
-    -- A state_inspector must NOT be bound to any tenant school.
+    CONSTRAINT chk_role CHECK (role IN ('state_admin', 'inspector', 'state_inspector', 'school_manager', 'teacher')),
+    -- State roles must never be bound to a school tenant.
     CONSTRAINT chk_state_user_has_no_school CHECK (
-        role <> 'state_inspector' OR school_id IS NULL
+        role NOT IN ('state_admin', 'inspector', 'state_inspector') OR school_id IS NULL
     )
 );
 
@@ -78,7 +100,8 @@ CREATE TABLE school_classes (
 CREATE TABLE students (
     id SERIAL PRIMARY KEY,
     school_id INT NOT NULL REFERENCES private_schools(id) ON DELETE CASCADE,
-    national_student_id VARCHAR(30) UNIQUE NOT NULL,  -- STU-2026-XY123, immutable, system-generated
+    national_student_id VARCHAR(30) UNIQUE NOT NULL,  -- compatibility identifier; new rows equal roll_number
+    roll_number VARCHAR(30) UNIQUE NOT NULL,          -- e.g. NG-10023, immutable, school-sequential
     current_class_id INT REFERENCES school_classes(id) ON DELETE SET NULL,
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
@@ -89,10 +112,13 @@ CREATE TABLE students (
     guardian_phone VARCHAR(50),
     guardian_email VARCHAR(255),
     emergency_contact_phone VARCHAR(50),
+    physical_address TEXT,
+    fee_status VARCHAR(20) DEFAULT 'NOT_PAID',
     enrollment_date DATE DEFAULT CURRENT_DATE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chk_gender CHECK (gender IN ('Male', 'Female', 'Other') OR gender IS NULL)
+    CONSTRAINT chk_gender CHECK (gender IN ('Male', 'Female', 'Other') OR gender IS NULL),
+    CONSTRAINT chk_fee_status CHECK (fee_status IN ('PAID', 'PENDING', 'NOT_PAID', 'SCHOLARSHIP') OR fee_status IS NULL)
 );
 
 CREATE TABLE subjects (
@@ -106,6 +132,19 @@ CREATE TABLE subjects (
         'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'
     )),
     CONSTRAINT uq_subject_per_school UNIQUE (school_id, subject_code, class_level)
+);
+
+-- Explicit schedule source of truth. A subject is catalogued per class level,
+-- while this table maps every stream + subject to its assigned teacher.
+CREATE TABLE teaching_assignments (
+    id SERIAL PRIMARY KEY,
+    school_id INT NOT NULL REFERENCES private_schools(id) ON DELETE CASCADE,
+    class_id INT NOT NULL REFERENCES school_classes(id) ON DELETE CASCADE,
+    subject_id INT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+    teacher_id INT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_class_subject_assignment UNIQUE (school_id, class_id, subject_id)
 );
 
 -- ============================================================================
@@ -225,9 +264,12 @@ CREATE TABLE student_invoices (
     amount_due NUMERIC(12,2) NOT NULL CHECK (amount_due >= 0),
     amount_paid NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (amount_paid >= 0),
     due_date DATE,
-    status VARCHAR(30) DEFAULT 'Outstanding',  -- 'Outstanding', 'Partially_Paid', 'Settled', 'Overdue'
+    status VARCHAR(30) DEFAULT 'NOT_PAID',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chk_invoice_status CHECK (status IN ('Outstanding', 'Partially_Paid', 'Settled', 'Overdue'))
+    CONSTRAINT chk_invoice_status CHECK (status IN (
+        'PAID', 'PENDING', 'NOT_PAID', 'SCHOLARSHIP',
+        'Outstanding', 'Partially_Paid', 'Settled', 'Overdue', 'Paid', 'Partially Paid', 'Void'
+    ))
 );
 
 CREATE TABLE payment_transactions (
@@ -261,6 +303,7 @@ CREATE TABLE security_audit_log (
 -- ============================================================================
 
 CREATE INDEX idx_student_search_national_id ON students(national_student_id);
+CREATE INDEX idx_student_search_roll_number ON students(roll_number);
 CREATE INDEX idx_student_names ON students(last_name, first_name);
 CREATE INDEX idx_grades_lookup ON student_grades(school_id, class_id, subject_id);
 CREATE INDEX idx_attendance_compliance ON live_attendance(date, school_id);
@@ -271,6 +314,8 @@ CREATE INDEX idx_grades_publication_valve ON student_grades(is_published, school
 CREATE INDEX idx_exam_events_school ON exam_submission_events(school_id, published_at DESC);
 CREATE INDEX idx_comm_logs_type ON communication_logs(message_type, timestamp_sent DESC);
 CREATE INDEX idx_tenant_users ON users(school_id, role);
+CREATE INDEX idx_teaching_assignments_teacher ON teaching_assignments(school_id, teacher_id);
+CREATE INDEX idx_teaching_assignments_class ON teaching_assignments(school_id, class_id);
 CREATE INDEX idx_invoices_ledger ON student_invoices(school_id, status);
 
 COMMIT;

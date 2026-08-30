@@ -10,7 +10,7 @@ import datetime as dt
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, contains_eager, joinedload
 
 from app.api.deps import require_school
@@ -27,7 +27,7 @@ from app.models import (
     User,
 )
 from app.schemas import StudentCreate, StudentUpdate
-from app.services.student_id import generate_unique_national_student_id
+from app.services.student_id import generate_school_roll_number
 
 router = APIRouter(prefix="/api/v1/school", tags=["students"])
 
@@ -55,8 +55,11 @@ def _profile(student: Student) -> dict:
     klass = student.current_class
     return {
         "id": student.id,
+        # ne_sid remains the stable URL/API key for older clients. New rows use
+        # the same value as the school roll number.
         "ne_sid": student.national_student_id,
         "national_student_id": student.national_student_id,
+        "roll_number": student.roll_number,
         "first_name": student.first_name,
         "last_name": student.last_name,
         "full_legal_name": f"{student.first_name} {student.last_name}",
@@ -85,11 +88,14 @@ def _scoped_student(ne_sid: str, user: User, db: Session) -> Student:
     student = (
         db.query(Student)
         .options(joinedload(Student.current_class))
-        .filter_by(school_id=user.school_id, national_student_id=ne_sid)
+        .filter(
+            Student.school_id == user.school_id,
+            or_(Student.national_student_id == ne_sid, Student.roll_number == ne_sid),
+        )
         .one_or_none()
     )
     if not student:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No student with NE-SID {ne_sid}")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No student with roll number {ne_sid}")
     return student
 
 
@@ -118,6 +124,7 @@ def students_by_class(
             Student.last_name.ilike(like)
             | Student.first_name.ilike(like)
             | Student.national_student_id.ilike(like)
+            | Student.roll_number.ilike(like)
         )
 
     grouped: dict[str, list[dict]] = defaultdict(list)
@@ -184,7 +191,7 @@ def student_details(
 def update_student(
     ne_sid: str,
     payload: StudentUpdate,
-    user: User = Depends(erp_write),
+    user: User = Depends(manager_only),
     db: Session = Depends(get_db),
 ):
     """Editable fields on the Student Details page."""
@@ -210,10 +217,10 @@ def update_student(
 @router.post("/students", status_code=201)
 def create_student(
     payload: StudentCreate,
-    user: User = Depends(erp_write),
+    user: User = Depends(manager_only),
     db: Session = Depends(get_db),
 ):
-    """Create-drawer / Quick Add registration (also used by teachers)."""
+    """School Manager registration with an automatic immutable roll number."""
     klass = (
         db.query(SchoolClass)
         .filter_by(id=payload.current_class_id, school_id=user.school_id)
@@ -222,10 +229,17 @@ def create_student(
     if not klass:
         raise HTTPException(404, "Class not found in this school")
 
-    enrollment_year = payload.enrollment_year or str(dt.date.today().year)
+    school = db.get(PrivateSchool, user.school_id)
+    if not school:
+        raise HTTPException(404, "School not found")
+    # Roll numbers are tenant-scoped, sequential and never re-used. Store the
+    # value in the legacy national-id field as well so existing deep links and
+    # API consumers continue to resolve the same student identifier.
+    roll_number = generate_school_roll_number(db, school)
     student = Student(
         school_id=user.school_id,
-        national_student_id=generate_unique_national_student_id(db, enrollment_year),
+        national_student_id=roll_number,
+        roll_number=roll_number,
         current_class_id=klass.id,
         first_name=payload.first_name.strip(),
         last_name=payload.last_name.strip(),
@@ -247,8 +261,9 @@ def create_student(
         "id": student.id,
         "national_student_id": student.national_student_id,
         "ne_sid": student.national_student_id,
+        "roll_number": student.roll_number,
         "class_label": _class_label(klass),
-        "message": f"Student registered with NE-SID {student.national_student_id}",
+        "message": f"Student registered with roll number {student.roll_number}",
     }
 
 
@@ -334,6 +349,7 @@ def report_card(
         "school": {
             "school_name": school.school_name if school else None,
             "state_license_number": school.state_license_number if school else None,
+            "school_code": school.school_code if school else None,
             "physical_address": school.physical_address if school else None,
             "contact_phone": school.contact_phone if school else None,
             "contact_email": school.contact_email if school else None,

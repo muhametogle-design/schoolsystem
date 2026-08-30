@@ -2,9 +2,33 @@
  * Multi-tenant SaaS frontend: State portal (read-only academics + red alarms)
  * and tenant ERP (students, attendance, marks, private billing).
  */
+// The API also maintains an HttpOnly session cookie.  Local storage is a
+// convenience, not a requirement: some phone/private browsers deny writes to
+// it, and the portal must still enter after a successful sign-in.
+const storage = {
+  get(key) {
+    try { return window.localStorage.getItem(key); } catch { return null; }
+  },
+  set(key, value) {
+    try { window.localStorage.setItem(key, value); return true; } catch { return false; }
+  },
+  clear() {
+    try { window.localStorage.clear(); } catch { /* cookie session remains */ }
+  },
+};
+
+function storedUser() {
+  try {
+    const value = storage.get("user");
+    return value ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
+}
+
 const API = {
-  token: localStorage.getItem("token"),
-  user: JSON.parse(localStorage.getItem("user") || "null"),
+  token: storage.get("token"),
+  user: storedUser(),
   view: null,
   ws: null,
   classCache: [],
@@ -33,7 +57,7 @@ async function api(path, { method = "GET", body } = {}) {
   if (!res.ok) {
     if (res.status === 401 && API.token) {
       // Session expired / revoked — return to the sign-in screen cleanly.
-      localStorage.clear();
+      storage.clear();
       API.token = null; API.user = null;
       toast("Session expired", "Please sign in again.", "warn");
       setTimeout(() => location.reload(), 1200);
@@ -73,8 +97,10 @@ $("#loginForm").addEventListener("submit", async (e) => {
     });
     API.token = data.access_token;
     API.user = data.user;
-    localStorage.setItem("token", API.token);
-    localStorage.setItem("user", JSON.stringify(API.user));
+    // The cookie sent by the API is enough for the portal if this browser
+    // disallows persistent local storage (common in privacy modes on mobile).
+    storage.set("token", API.token);
+    storage.set("user", JSON.stringify(API.user));
     enterApp();
   } catch (err) {
     $("#loginError").textContent = err.message;
@@ -94,7 +120,7 @@ document.querySelectorAll(".demo-chip").forEach((chip) => {
 
 $("#logoutBtn").addEventListener("click", async () => {
   try { await api("/api/auth/logout", { method: "POST" }); } catch { /* best effort */ }
-  localStorage.clear();
+  storage.clear();
   API.token = null; API.user = null;
   if (API.ws) { try { API.ws.close(); } catch { /* noop */ } }
   location.reload();
@@ -178,6 +204,12 @@ const NAV = {
   ],
 };
 
+// State Admin and Inspector share the read-only academic portal. The Admin
+// additionally receives authorization for server-side tenant provisioning.
+NAV.state_admin = NAV.state_inspector;
+NAV.inspector = NAV.state_inspector;
+const isStateRole = (role) => ["state_admin", "inspector", "state_inspector"].includes(role);
+
 const VIEWS = {
   "state-map": { title: "State Supervisor Command Map", render: renderStateMap },
   lookup: { title: "Statewide Student ID Lookup Engine", render: renderLookup },
@@ -198,7 +230,7 @@ function enterApp() {
   $("#appView").classList.remove("hidden");
   const u = API.user;
   $("#whoami").textContent = `${u.first_name ?? ""} ${u.last_name ?? ""} · ${u.role}${u.school_name ? " · " + u.school_name : ""}`.trim();
-  $("#topSub").textContent = (u.role === "state_inspector" ? "State Government Super-Admin Portal" : `${u.school_name} — Tenant ERP`) + (API.version ? ` · v${API.version}` : "");
+  $("#topSub").textContent = (isStateRole(u.role) ? (u.role === "state_admin" ? "State Administration Portal" : "State Inspector Portal") : `${u.school_name} — Tenant ERP`) + (API.version ? ` · v${API.version}` : "");
   const nav = NAV[u.role] ?? [];
   $("#sidenav").innerHTML = nav.map((item) =>
     item.section
@@ -208,9 +240,16 @@ function enterApp() {
   document.querySelectorAll(".nav-item").forEach((btn) =>
     btn.addEventListener("click", () => setView(btn.dataset.view))
   );
-  connectWS();
   const first = nav.find((n) => n.id);
+  // Render the workspace before opening the optional real-time channel. Some
+  // mobile browsers reject local ws:// connections; that must never prevent a
+  // successfully authenticated user from entering the portal.
   setView(resolveLandingView(first ? first.id : "overview", nav));
+  try {
+    connectWS();
+  } catch (error) {
+    console.warn("Live alert channel unavailable; continuing without WebSocket.", error);
+  }
 }
 
 /* STEP 4 routing: /admin/state and /admin/school arm the matching workspace. */
@@ -218,12 +257,12 @@ function resolveLandingView(defaultView, nav) {
   const path = location.pathname;
   const ids = new Set(nav.map((n) => n.id).filter(Boolean));
   if (path.startsWith("/admin/state")) {
-    if (API.user.role === "state_inspector") return "state-map";
-    toast("Access denied", "The State Admin Panel requires the state_inspector role.", "warn");
+    if (isStateRole(API.user.role)) return "state-map";
+    toast("Access denied", "The State Admin Panel requires a State Admin or Inspector role.", "warn");
     return defaultView;
   }
   if (path.startsWith("/admin/school")) {
-    if (API.user.role !== "state_inspector") return "overview";
+    if (!isStateRole(API.user.role)) return "overview";
     toast("Access denied", "The School ERP Portal is for school_manager / teacher roles.", "warn");
     return defaultView;
   }
@@ -245,7 +284,7 @@ function setView(id) {
 async function renderStateMap() {
   $("#content").innerHTML = `
     <div class="toolbar">
-      <button class="btn btn-danger" id="runAudit">▶ Run 15:00 Red Alarm Audit now</button>
+      ${API.user.role === "state_admin" ? '<button class="btn btn-danger" id="runAudit">▶ Run 15:00 Red Alarm Audit now</button>' : ''}
       <select id="mapFilter" aria-label="Filter schools">
         <option value="all">All active schools</option>
         <option value="alarms">🚨 Alarms only</option>
@@ -260,7 +299,7 @@ async function renderStateMap() {
       <p class="sub">View A: State Supervisor Core Command Map &amp; Alarm Portal · generated live</p>
       <div class="tbl-wrap"><table class="tbl" id="mapTable"></table></div>
     </div>`;
-  $("#runAudit").addEventListener("click", async () => {
+  $("#runAudit")?.addEventListener("click", async () => {
     $("#runAudit").disabled = true;
     try {
       const r = await api("/api/v1/state/audit/run", { method: "POST" });
@@ -334,7 +373,7 @@ async function renderLookup() {
       <p class="sub">View B — deep search across Class 1-12 by national tracking ID (STU-…), guardian surname or guardian phone number</p>
       <div class="toolbar">
         <div class="field" style="flex:1">Query
-          <input id="lookupQ" placeholder='e.g. "STU-2026-KX482" or "Farah"' style="width:100%" />
+          <input id="lookupQ" placeholder='e.g. "NG-10023" or "Farah"' style="width:100%" />
         </div>
         <button class="btn btn-primary" id="lookupBtn">Search</button>
       </div>
@@ -353,7 +392,7 @@ async function doLookup() {
     const data = await api(`/api/v1/state/students/search?q=${encodeURIComponent(q)}`);
     const rows = data.results.map((r) => `
       <tr>
-        <td class="mono">${esc(r.national_student_id)}</td>
+        <td class="mono">${esc(r.roll_number ?? r.national_student_id)}</td>
         <td><strong>${esc(r.first_name)} ${esc(r.last_name)}</strong></td>
         <td>${esc(r.class_level ?? "—")} ${esc(r.class_stream ?? "")}</td>
         <td>${esc(r.school_name)}</td>
@@ -361,7 +400,7 @@ async function doLookup() {
         <td>${esc(r.guardian_phone ?? "—")}<div class="note">SOS: ${esc(r.emergency_contact_phone ?? "—")}</div></td>
       </tr>`).join("");
     $("#lookupTable").innerHTML = `
-      <thead><tr><th>National ID</th><th>Student</th><th>Class</th><th>School</th><th>Guardian</th><th>Contacts</th></tr></thead>
+      <thead><tr><th>Roll number</th><th>Student</th><th>Class</th><th>School</th><th>Guardian</th><th>Contacts</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="6" class="empty">No matches for “${esc(q)}”</td></tr></tbody>`}</tbody>`;
   } catch (err) {
     $("#lookupTable").innerHTML = `<tbody><tr><td class="empty">⚠️ ${esc(err.message)}</td></tr></tbody>`;
@@ -428,10 +467,10 @@ async function loadLiveAttendance() {
   const data = await api(`/api/v1/state/attendance/live${school ? `?school_id=${school}` : ""}`);
   const badge = { Present: "ok", Absent: "alarm", Late: "warn", Excused: "info" };
   const rows = data.records.map((r) => `
-    <tr><td>${esc(r.school_name)}</td><td>${esc(r.class)}</td><td class="mono">${esc(r.national_student_id)}</td>
+    <tr><td>${esc(r.school_name)}</td><td>${esc(r.class)}</td><td class="mono">${esc(r.roll_number ?? r.national_student_id)}</td>
     <td>${esc(r.student)}</td><td><span class="pill ${badge[r.status] ?? "dim"}">${esc(r.status).toUpperCase()}</span></td></tr>`).join("");
   $("#laTable").innerHTML = `
-    <thead><tr><th>School</th><th>Class</th><th>National ID</th><th>Student</th><th>Status</th></tr></thead>
+    <thead><tr><th>School</th><th>Class</th><th>Roll number</th><th>Student</th><th>Status</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="5" class="empty">No attendance records today yet.</td></tr>'}</tbody>`;
 }
 
@@ -500,6 +539,17 @@ async function renderStudents() {
   const classes = await api("/api/v1/school/classes");
   API.classCache = classes.classes;
   const opts = classes.classes.map((c) => `<option value="${c.id}">${esc(c.class_label)} (${c.student_count})</option>`).join("");
+  const registrationClassOptions = Array.from({ length: 12 }, (_, index) => `Class ${index + 1}`)
+    .map((level) => {
+      const tracks = classes.classes.filter((klass) => klass.class_level === level);
+      if (!tracks.length) {
+        return `<option disabled>${esc(level)} — not configured for this school</option>`;
+      }
+      return tracks.map((klass) =>
+        `<option value="${klass.id}">${esc(level)}${klass.class_stream ? ` · Stream ${esc(klass.class_stream)}` : ""}</option>`
+      ).join("");
+    })
+    .join("");
   $("#content").innerHTML = `
     <div class="panel">
       <h3>Register new student</h3>
@@ -507,7 +557,7 @@ async function renderStudents() {
       <div class="form-grid">
         <div class="field">First name<input id="stFirst" /></div>
         <div class="field">Last name<input id="stLast" /></div>
-        <div class="field">Class<select id="stClass">${opts}</select></div>
+        <div class="field">Class (Class 1–Class 12)<select id="stClass">${registrationClassOptions}</select></div>
         <div class="field">Gender<select id="stGender"><option>Female</option><option>Male</option><option>Other</option></select></div>
         <div class="field">Date of birth<input type="date" id="stDob" /></div>
         <div class="field">Guardian name<input id="stGuardian" /></div>
@@ -545,7 +595,7 @@ async function createStudent() {
   try {
     const r = await api("/api/v1/school/students", { method: "POST", body });
     $("#stResult").innerHTML = `✅ ${esc(r.message)} — <span class="mono-tag">${esc(r.national_student_id)}</span>`;
-    toast("Student registered", `National ID ${r.national_student_id}`, "success");
+    toast("Student registered", `Roll number ${r.roll_number ?? r.national_student_id}`, "success");
     loadStudents();
   } catch (err) { $("#stResult").textContent = `⚠️ ${err.message}`; }
 }
@@ -561,7 +611,7 @@ async function loadStudents() {
     <td><strong>${esc(s.first_name)} ${esc(s.last_name)}</strong><div class="note">${esc(s.guardian_name ?? "")} · ${esc(s.guardian_phone ?? "")}</div></td>
     <td>${esc(s.class_label ?? "—")}</td><td>${esc(s.gender ?? "—")}</td>
     <td>${s.is_active ? '<span class="pill ok">ACTIVE</span>' : '<span class="pill dim">INACTIVE</span>'}</td></tr>`).join("");
-  $("#stTable").innerHTML = `<thead><tr><th>National ID</th><th>Student</th><th>Class</th><th>Gender</th><th>Status</th></tr></thead>
+  $("#stTable").innerHTML = `<thead><tr><th>Roll number</th><th>Student</th><th>Class</th><th>Gender</th><th>Status</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="5" class="empty">No students found.</td></tr>'}</tbody>`;
 }
 
@@ -857,5 +907,15 @@ async function applyPayment() {
 if (API.token && API.user) {
   enterApp();
 } else {
-  $("#loginView").classList.remove("hidden");
+  // A successful login always sets an HttpOnly cookie.  Recover from it when
+  // persistent browser storage is unavailable instead of leaving mobile users
+  // on the sign-in screen.
+  api("/api/auth/me")
+    .then((user) => {
+      API.user = user;
+      enterApp();
+    })
+    .catch(() => {
+      $("#loginView").classList.remove("hidden");
+    });
 }

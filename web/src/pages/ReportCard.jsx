@@ -69,8 +69,8 @@ export default function ReportCard() {
             <strong>{student.full_legal_name}</strong>
           </div>
           <div className="sheet__id-block">
-            <span className="sheet__label">NE-SID</span>
-            <strong className="mono">{student.ne_sid}</strong>
+            <span className="sheet__label">Roll number</span>
+            <strong className="mono">{student.roll_number ?? student.ne_sid}</strong>
           </div>
           <div className="sheet__id-block">
             <span className="sheet__label">Age</span>

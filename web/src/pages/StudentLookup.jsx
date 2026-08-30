@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useSearchParams } from 'react-router-dom';
 import Badge from '../components/Badge';
 import { KpiCard } from '../components/Charts';
 import {
@@ -9,18 +10,24 @@ import {
 } from '../features/students/studentSlice';
 
 /**
- * Global NE-SID lookup. Returns a seasonal summary: profile, guardian contact,
+ * Global roll-number lookup. Returns a seasonal summary: profile, guardian contact,
  * every PUBLISHED marksheet and the full attendance log with truancy markers.
  */
 export default function StudentLookup() {
   const dispatch = useDispatch();
+  const [searchParams] = useSearchParams();
+  const selectedRoll = searchParams.get('roll') ?? '';
   const result = useSelector(selectLookup);
   const { error } = useSelector((state) => state.students);
   const [term, setTerm] = useState('');
 
   useEffect(() => {
     dispatch(clearLookup());
-  }, [dispatch]);
+    if (selectedRoll) {
+      setTerm(selectedRoll);
+      dispatch(lookupStudent(selectedRoll));
+    }
+  }, [dispatch, selectedRoll]);
 
   const search = (event) => {
     event.preventDefault();
@@ -33,14 +40,14 @@ export default function StudentLookup() {
         <header className="card__head">
           <h2 className="card__title">Global Student Lookup</h2>
           <span className="card__hint">
-            Search any NE-SID across every licensed institution in the region
+            Search any school roll number across every licensed institution in the region
           </span>
         </header>
 
         <form className="toolbar toolbar--search" onSubmit={search}>
           <input
             className="input input--search"
-            placeholder="NE-SID-2026-XY123"
+            placeholder="NG-10023"
             value={term}
             onChange={(e) => setTerm(e.target.value)}
           />
@@ -51,7 +58,7 @@ export default function StudentLookup() {
 
         {error && <p className="alert alert--danger">{error}</p>}
         {!result && !error && (
-          <p className="empty">Enter a student NE-SID to open their seasonal summary.</p>
+          <p className="empty">Enter a student roll number to open their seasonal summary.</p>
         )}
       </section>
 
@@ -61,7 +68,7 @@ export default function StudentLookup() {
             <header className="card__head card__head--row">
               <div>
                 <h2 className="card__title">{result.full_legal_name}</h2>
-                <span className="card__hint mono">{result.ne_sid}</span>
+                <span className="card__hint mono">Roll number: {result.roll_number ?? result.ne_sid}</span>
               </div>
               <Badge status="Active">{result.school?.school_name}</Badge>
             </header>

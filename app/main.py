@@ -26,13 +26,15 @@ from app.api import (
     billing,
     health,
     school,
+    management,
     state,
+    state_management,
     state_oversight,
     students,
     ws,
 )
 from app.core.config import settings
-from app.core.db import SessionLocal, init_db, IS_SQLITE
+from app.core.db import SessionLocal, init_db, set_rls_context
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -57,6 +59,10 @@ async def lifespan(app: FastAPI):
         from scripts.seed_data import seed_if_empty
 
         with SessionLocal() as session:
+            # Bootstrap is a trusted state-admin operation; this context also
+            # permits a truly empty PostgreSQL database to receive its initial
+            # tenant estate after RLS has been installed.
+            set_rls_context(session, school_id=None, role="state_admin")
             seed_if_empty(session)
 
     if settings.enable_scheduler:
@@ -131,10 +137,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(state.router)
+app.include_router(state_management.router)
 app.include_router(school.router)
-# NE-EMIS: student profiles, school analytics and state institutional oversight.
-# Registered after `school` so the class-grouped and NE-SID routes win.
+# Student profiles and manager-only tenant setup are registered after the core
+# ERP routes so fixed routes win over parameterized profile URLs.
 app.include_router(students.router)
+app.include_router(management.router)
 app.include_router(analytics.router)
 app.include_router(state_oversight.router)
 app.include_router(billing.router)

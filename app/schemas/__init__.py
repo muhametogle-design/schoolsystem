@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 # --- Auth ---
@@ -43,6 +43,7 @@ class StudentCreate(BaseModel):
     emergency_contact_phone: str | None = None
     physical_address: str | None = None
     fee_status: str = Field(default="NOT_PAID", pattern="^(PAID|PENDING|NOT_PAID|SCHOLARSHIP)$")
+    # Retained for older clients; roll numbers are school-sequence based now.
     enrollment_year: str = Field(default="2026", pattern="^[0-9]{4}$")
 
 
@@ -50,6 +51,7 @@ class StudentRead(BaseModel):
     id: int
     school_id: int
     national_student_id: str
+    roll_number: str | None = None
     current_class_id: int | None
     class_label: str | None = None
     first_name: str
@@ -64,7 +66,7 @@ class StudentRead(BaseModel):
     is_active: bool
 
 
-# --- NE-EMIS: fee status & student profile editing ---
+# --- Student profile editing ---
 FEE_STATUS_VALUES = ("PAID", "PENDING", "NOT_PAID", "SCHOLARSHIP")
 
 
@@ -86,17 +88,111 @@ class StudentUpdate(BaseModel):
     is_active: bool | None = None
 
 
-# --- Classes / subjects ---
+# --- Classes / subjects / authoritative teaching assignments ---
 class ClassCreate(BaseModel):
     class_level: str
-    class_stream: str
-    room_number: str | None = None
+    class_stream: str = Field(min_length=1, max_length=50)
+    room_number: str | None = Field(default=None, max_length=50)
+    class_teacher_id: int | None = None
+
+
+class ClassUpdate(BaseModel):
+    class_stream: str | None = Field(default=None, min_length=1, max_length=50)
+    room_number: str | None = Field(default=None, max_length=50)
+    class_teacher_id: int | None = None
 
 
 class SubjectCreate(BaseModel):
-    subject_code: str
-    subject_name: str
+    subject_code: str = Field(min_length=1, max_length=30)
+    subject_name: str = Field(min_length=1, max_length=150)
     class_level: str
+    teacher_id: int | None = None
+
+
+class SubjectUpdate(BaseModel):
+    subject_code: str | None = Field(default=None, min_length=1, max_length=30)
+    subject_name: str | None = Field(default=None, min_length=1, max_length=150)
+
+
+class TeachingAssignmentUpdate(BaseModel):
+    teacher_id: int
+
+
+# --- Teacher profiles ---
+class TeacherCreate(BaseModel):
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=256)
+    phone: str | None = Field(default=None, max_length=50)
+    qualifications: str | None = None
+    designation: str | None = Field(default="Teacher", max_length=100)
+    bio: str | None = None
+    is_active: bool = True
+
+
+class TeacherUpdate(BaseModel):
+    first_name: str | None = Field(default=None, min_length=1, max_length=100)
+    last_name: str | None = Field(default=None, min_length=1, max_length=100)
+    email: EmailStr | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+    phone: str | None = Field(default=None, max_length=50)
+    qualifications: str | None = None
+    designation: str | None = Field(default=None, max_length=100)
+    bio: str | None = None
+    is_active: bool | None = None
+
+
+# --- State tenant provisioning / tenant profile ---
+class SchoolCreate(BaseModel):
+    # State provisioning accepts academic/public tenant setup only. Reject an
+    # attempted billing field rather than silently treating it as harmless.
+    model_config = ConfigDict(extra="forbid")
+
+    school_name: str = Field(min_length=2, max_length=255)
+    state_license_number: str = Field(min_length=2, max_length=100)
+    school_code: str | None = Field(default=None, min_length=2, max_length=2, pattern="^[A-Za-z]{2}$")
+    proprietor_name: str | None = Field(default=None, max_length=255)
+    contact_phone: str | None = Field(default=None, max_length=50)
+    contact_email: EmailStr | None = None
+    physical_address: str | None = None
+    accreditation_status: str = Field(default="Active", pattern="^(Active|Probation|Suspended)$")
+    manager_first_name: str = Field(default="School", min_length=1, max_length=100)
+    manager_last_name: str = Field(default="Administrator", min_length=1, max_length=100)
+    manager_email: EmailStr
+    manager_password: str = Field(min_length=8, max_length=256)
+    streams: list[str] = Field(default_factory=lambda: ["A"], min_length=1, max_length=12)
+
+
+class StateSchoolUpdate(BaseModel):
+    # Public school identity only; tenant-private finance fields are forbidden.
+    model_config = ConfigDict(extra="forbid")
+
+    school_name: str | None = Field(default=None, min_length=2, max_length=255)
+    state_license_number: str | None = Field(default=None, min_length=2, max_length=100)
+    school_code: str | None = Field(default=None, min_length=2, max_length=2, pattern="^[A-Za-z]{2}$")
+    proprietor_name: str | None = Field(default=None, max_length=255)
+    contact_phone: str | None = Field(default=None, max_length=50)
+    contact_email: EmailStr | None = None
+    physical_address: str | None = None
+    accreditation_status: str | None = Field(default=None, pattern="^(Active|Probation|Suspended)$")
+
+
+class SchoolProfileUpdate(BaseModel):
+    school_name: str | None = Field(default=None, min_length=2, max_length=255)
+    proprietor_name: str | None = Field(default=None, max_length=255)
+    contact_phone: str | None = Field(default=None, max_length=50)
+    contact_email: EmailStr | None = None
+    physical_address: str | None = None
+    billing_contact_name: str | None = Field(default=None, max_length=255)
+    billing_phone: str | None = Field(default=None, max_length=50)
+    billing_email: EmailStr | None = None
+    billing_address: str | None = None
+    billing_notes: str | None = None
+
+
+class RollSequenceUpdate(BaseModel):
+    next_value: int = Field(ge=1)
 
 
 # --- Attendance ---
@@ -143,14 +239,32 @@ class TuitionRateCreate(BaseModel):
     billing_cycle: str = Field(default="Termly", pattern="^(Termly|Monthly|Annual)$")
 
 
+class TuitionRateUpdate(BaseModel):
+    base_tuition_amount: float | None = Field(default=None, gt=0)
+    billing_cycle: str | None = Field(default=None, pattern="^(Termly|Monthly|Annual)$")
+    class_level: str | None = None
+
+
 class InvoiceCreate(BaseModel):
     student_id: int
-    description: str
+    description: str = Field(min_length=1, max_length=255)
     amount_due: float = Field(ge=0)
+    due_date: dt.date | None = None
+
+
+class InvoiceUpdate(BaseModel):
+    description: str | None = Field(default=None, min_length=1, max_length=255)
+    amount_due: float | None = Field(default=None, ge=0)
     due_date: dt.date | None = None
 
 
 class PaymentCreate(BaseModel):
     amount: float = Field(gt=0)
     payment_method: str = Field(pattern="^(Cash|Bank_Transfer|Mobile_Money|Card)$")
-    reference_number: str | None = None
+    reference_number: str | None = Field(default=None, max_length=100)
+
+
+class PaymentUpdate(BaseModel):
+    amount: float | None = Field(default=None, gt=0)
+    payment_method: str | None = Field(default=None, pattern="^(Cash|Bank_Transfer|Mobile_Money|Card)$")
+    reference_number: str | None = Field(default=None, max_length=100)

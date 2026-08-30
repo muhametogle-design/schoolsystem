@@ -76,7 +76,7 @@ export default function StudentDetails() {
         <header className="card__head card__head--row">
           <div>
             <h2 className="card__title">{student.full_legal_name}</h2>
-            <span className="card__hint mono">{student.ne_sid}</span>
+            <span className="card__hint mono">Roll number: {student.roll_number ?? student.ne_sid}</span>
           </div>
           <div className="toolbar">
             <Link className="btn btn--ghost" to={`/school/students/${student.ne_sid}/report-card`}>
@@ -103,8 +103,8 @@ export default function StudentDetails() {
                   <dd>{student.full_legal_name}</dd>
                 </div>
                 <div>
-                  <dt>NE-SID</dt>
-                  <dd className="mono">{student.ne_sid}</dd>
+                  <dt>Roll number</dt>
+                  <dd className="mono">{student.roll_number ?? student.ne_sid}</dd>
                 </div>
                 <div>
                   <dt>Age</dt>

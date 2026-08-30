@@ -36,6 +36,7 @@ def test_generator_retries_on_collision(monkeypatch):
             Student(
                 school_id=school.id,
                 national_student_id="NE-SID-2026-ZZ999",
+                roll_number="ZZ-99999",
                 current_class_id=klass.id,
                 first_name="Taken",
                 last_name="Code",
@@ -56,6 +57,16 @@ def test_generator_retries_on_collision(monkeypatch):
     assert issued == "NE-SID-2026-QQ111", "generator returned a colliding ID instead of retrying"
 
 
+def test_registration_class_list_contains_all_twelve_levels_in_order(client, greenfield_manager_headers):
+    """The registration selector receives a complete Class 1 → Class 12 list."""
+    response = client.get("/api/v1/school/classes", headers=greenfield_manager_headers)
+    assert response.status_code == 200
+    classes = response.json()["classes"]
+
+    assert [row["class_level"] for row in classes] == [f"Class {number}" for number in range(1, 13)]
+    assert all(row["class_stream"] == "A" for row in classes)
+
+
 def test_registration_endpoint_issues_generated_id(client, greenfield_manager_headers):
     classes = client.get("/api/v1/school/classes", headers=greenfield_manager_headers).json()["classes"]
     res = client.post(
@@ -73,9 +84,10 @@ def test_registration_endpoint_issues_generated_id(client, greenfield_manager_he
     )
     assert res.status_code == 201
     body = res.json()
-    assert re.match(r"^NE-SID-\d{4}-[A-Z]{2}\d{3}$", body["national_student_id"])
+    assert re.match(r"^AQ-\d+$", body["roll_number"])
+    assert body["national_student_id"] == body["roll_number"]
 
-    # The issued ID resolves through the State-wide lookup engine
+    # The issued roll resolves through the State-wide lookup engine.
     with SessionLocal() as db:
-        row = db.query(Student).filter_by(national_student_id=body["national_student_id"]).one()
+        row = db.query(Student).filter_by(roll_number=body["roll_number"]).one()
         assert row.school_id is not None

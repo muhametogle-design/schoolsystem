@@ -29,8 +29,10 @@ services:
       JWT_SECRET_KEY: change-me-docker-dev-secret-rotate-in-prod
       APP_ENV: production
       PLATFORM_TIMEZONE: Africa/Nairobi
-      AUTO_SEED_DEMO: "true"
-      ENABLE_SCHEDULER: "true"
+      # Defaults keep `docker compose up` useful locally; a .env can set both
+      # flags explicitly for a production deployment.
+      AUTO_SEED_DEMO: "${AUTO_SEED_DEMO:-true}"
+      ENABLE_SCHEDULER: "${ENABLE_SCHEDULER:-true}"
       CORS_ORIGINS_RAW: "*"
     command: ["python", "scripts/seed_data.py"]
     depends_on:

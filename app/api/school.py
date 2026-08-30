@@ -40,7 +40,7 @@ from app.schemas import (
 )
 from app.services.compliance import submit_daily_attendance_roster
 from app.services.publication import publish_exam_marks
-from app.services.student_id import generate_unique_national_student_id
+from app.services.school_template import ensure_assignments_for_class, ensure_assignments_for_subject
 
 router = APIRouter(prefix="/api/v1/school", tags=["school-erp"])
 
@@ -51,6 +51,15 @@ manager_only = require_school("school_manager")
 
 def _class_label(klass: SchoolClass | None) -> str | None:
     return f"{klass.class_level} {klass.class_stream}" if klass else None
+
+
+def _class_sort_key(klass: SchoolClass) -> tuple[int, str, int]:
+    """Order Class 1 → Class 12 naturally, then stream (not lexicographically)."""
+    try:
+        level_number = int(klass.class_level.rsplit(" ", 1)[-1])
+    except (AttributeError, ValueError):
+        level_number = len(CLASS_LEVELS) + 1
+    return (level_number, (klass.class_stream or "").casefold(), klass.id)
 
 
 # --------------------------------------------------------------------------- #
@@ -77,6 +86,7 @@ def overview(user: User = Depends(any_school_user), db: Session = Depends(get_db
     return {
         "school_id": user.school_id,
         "school_name": school.school_name if school else None,
+        "school_code": school.school_code if school else None,
         "academic_year": {"id": year.id, "label": year.label} if year else None,
         "today": today.isoformat(),
         "attendance_deadline": settings.attendance_deadline,
@@ -99,9 +109,9 @@ def list_classes(user: User = Depends(any_school_user), db: Session = Depends(ge
         db.query(SchoolClass)
         .options(joinedload(SchoolClass.students))
         .filter_by(school_id=user.school_id)
-        .order_by(SchoolClass.class_level, SchoolClass.class_stream)
         .all()
     )
+    rows.sort(key=_class_sort_key)
     return {
         "classes": [
             {
@@ -118,7 +128,7 @@ def list_classes(user: User = Depends(any_school_user), db: Session = Depends(ge
 
 
 @router.post("/classes", status_code=201)
-def create_class(payload: ClassCreate, user: User = Depends(erp_write), db: Session = Depends(get_db)):
+def create_class(payload: ClassCreate, user: User = Depends(manager_only), db: Session = Depends(get_db)):
     if payload.class_level not in CLASS_LEVELS:
         raise HTTPException(422, f"class_level must be one of {list(CLASS_LEVELS)}")
     exists = (
@@ -132,15 +142,37 @@ def create_class(payload: ClassCreate, user: User = Depends(erp_write), db: Sess
     )
     if exists:
         raise HTTPException(409, "This class level + stream already exists")
+    if payload.class_teacher_id is not None:
+        teacher = db.query(User).filter_by(
+            id=payload.class_teacher_id, school_id=user.school_id, role="teacher"
+        ).one_or_none()
+        if not teacher:
+            raise HTTPException(404, "Class teacher not found in this school")
+
     klass = SchoolClass(
         school_id=user.school_id,
         class_level=payload.class_level,
-        class_stream=payload.class_stream,
+        class_stream=payload.class_stream.strip(),
         room_number=payload.room_number,
+        class_teacher_id=payload.class_teacher_id,
     )
     db.add(klass)
+    db.flush()
+    from app.models import PrivateSchool
+
+    school = db.get(PrivateSchool, user.school_id)
+    fallback_teacher = (
+        db.query(User)
+        .filter_by(school_id=user.school_id, role="teacher", is_active=True)
+        .order_by(User.id)
+        .first()
+    )
+    if school:
+        ensure_assignments_for_class(
+            db, school, klass, fallback_teacher_id=fallback_teacher.id if fallback_teacher else None
+        )
     db.commit()
-    return {"id": klass.id, "class_label": _class_label(klass)}
+    return {"id": klass.id, "class_label": _class_label(klass), "subjects_initialized": True}
 
 
 @router.get("/subjects")
@@ -160,17 +192,35 @@ def list_subjects(
 
 
 @router.post("/subjects", status_code=201)
-def create_subject(payload: SubjectCreate, user: User = Depends(erp_write), db: Session = Depends(get_db)):
+def create_subject(payload: SubjectCreate, user: User = Depends(manager_only), db: Session = Depends(get_db)):
     if payload.class_level not in CLASS_LEVELS:
         raise HTTPException(422, f"class_level must be one of {list(CLASS_LEVELS)}")
-    subject = Subject(school_id=user.school_id, **payload.model_dump())
+    teacher_id = payload.teacher_id
+    if teacher_id is not None:
+        teacher = db.query(User).filter_by(
+            id=teacher_id, school_id=user.school_id, role="teacher"
+        ).one_or_none()
+        if not teacher:
+            raise HTTPException(404, "Assigned teacher not found in this school")
+    subject = Subject(
+        school_id=user.school_id,
+        subject_code=payload.subject_code.strip().upper(),
+        subject_name=payload.subject_name.strip(),
+        class_level=payload.class_level,
+    )
     db.add(subject)
     try:
+        db.flush()
+        from app.models import PrivateSchool
+
+        school = db.get(PrivateSchool, user.school_id)
+        if school:
+            ensure_assignments_for_subject(db, school, subject, fallback_teacher_id=teacher_id)
         db.commit()
     except Exception:
         db.rollback()
         raise HTTPException(409, "Subject code already registered for this class level")
-    return {"id": subject.id, "subject_name": subject.subject_name}
+    return {"id": subject.id, "subject_name": subject.subject_name, "assigned_to_all_streams": True}
 
 
 @router.get("/academic-years")
@@ -184,7 +234,7 @@ def academic_years(user: User = Depends(any_school_user), db: Session = Depends(
 
 
 # --------------------------------------------------------------------------- #
-# Students (auto STU-YYYY-XY123 national ID)
+# Students (automatic immutable school roll number, e.g. NG-10023)
 # --------------------------------------------------------------------------- #
 @router.get("/students")
 def list_students(
@@ -202,6 +252,7 @@ def list_students(
             (Student.last_name.ilike(like))
             | (Student.first_name.ilike(like))
             | (Student.national_student_id.ilike(like))
+            | (Student.roll_number.ilike(like))
         )
     rows = query.order_by(Student.last_name, Student.first_name).limit(500).all()
     return {
@@ -209,6 +260,7 @@ def list_students(
             {
                 "id": s.id,
                 "national_student_id": s.national_student_id,
+                "roll_number": s.roll_number,
                 "first_name": s.first_name,
                 "last_name": s.last_name,
                 "gender": s.gender,
@@ -377,6 +429,8 @@ def record_grades(payload: GradeBulkRequest, user: User = Depends(erp_write), db
     subject = db.query(Subject).filter_by(id=payload.subject_id, school_id=user.school_id).one_or_none()
     if not klass or not subject:
         raise HTTPException(404, "Class or subject not found in this school")
+    if subject.class_level != klass.class_level:
+        raise HTTPException(422, "Subject does not belong to this class level")
 
     event = (
         db.query(ExamSubmissionEvent)
