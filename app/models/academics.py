@@ -1,4 +1,4 @@
-"""Compliance tier: classes 1-12, students, grades, attendance & the release valve."""
+"""Compliance tier: classes 1-12, curriculum assignments, students, grades and attendance."""
 
 from __future__ import annotations
 
@@ -49,12 +49,19 @@ class SchoolClass(Base):
 
     school = relationship("PrivateSchool", back_populates="classes")
     students = relationship("Student", back_populates="current_class")
+    teaching_assignments = relationship(
+        "TeachingAssignment",
+        back_populates="school_class",
+        foreign_keys="TeachingAssignment.class_id",
+        cascade="all, delete-orphan",
+    )
 
 
 class Student(Base):
     __tablename__ = "students"
     __table_args__ = (
         Index("idx_student_search_national_id", "national_student_id"),
+        Index("idx_student_search_roll_number", "roll_number"),
         Index("idx_student_names", "last_name", "first_name"),
         Index("idx_student_fee_status", "school_id", "fee_status"),
         CheckConstraint(
@@ -68,7 +75,9 @@ class Student(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    # Retained for API compatibility; all new registrations use their roll number here too.
     national_student_id: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
+    roll_number: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
     current_class_id: Mapped[int | None] = mapped_column(ForeignKey("school_classes.id", ondelete="SET NULL"))
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -80,8 +89,7 @@ class Student(Base):
     guardian_email: Mapped[str | None] = mapped_column(String(255))
     emergency_contact_phone: Mapped[str | None] = mapped_column(String(50))
     physical_address: Mapped[str | None] = mapped_column(Text)
-    #: PAID | PENDING | NOT_PAID | SCHOLARSHIP — drives the Tuition Status
-    #: Breakdown widget and the fee collection matrix.
+    #: PAID | PENDING | NOT_PAID | SCHOLARSHIP — drives the fee collection matrix.
     fee_status: Mapped[str] = mapped_column(String(20), default="NOT_PAID", nullable=False)
     enrollment_date: Mapped[dt.date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -92,6 +100,13 @@ class Student(Base):
 
 
 class Subject(Base):
+    """A subject catalog entry at a school and class level.
+
+    A separate ``TeachingAssignment`` ties it to a particular stream and
+    teacher. Keeping the catalogue separate means Class 7 A and Class 7 B can
+    use the same curriculum while having different subject teachers.
+    """
+
     __tablename__ = "subjects"
     __table_args__ = (
         UniqueConstraint("school_id", "subject_code", "class_level", name="uq_subject_per_school"),
@@ -105,6 +120,46 @@ class Subject(Base):
     subject_code: Mapped[str] = mapped_column(String(30), nullable=False)
     subject_name: Mapped[str] = mapped_column(String(150), nullable=False)
     class_level: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    teaching_assignments = relationship(
+        "TeachingAssignment",
+        back_populates="subject",
+        foreign_keys="TeachingAssignment.subject_id",
+        cascade="all, delete-orphan",
+    )
+
+
+class TeachingAssignment(Base):
+    """Authoritative class / subject / teacher mapping.
+
+    Grade-entry history is deliberately *not* used to infer who teaches a
+    subject. This table is the schedule source of truth for school managers,
+    State Admins, and Inspectors.
+    """
+
+    __tablename__ = "teaching_assignments"
+    __table_args__ = (
+        UniqueConstraint("school_id", "class_id", "subject_id", name="uq_class_subject_assignment"),
+        Index("idx_teaching_assignments_teacher", "school_id", "teacher_id"),
+        Index("idx_teaching_assignments_class", "school_id", "class_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    class_id: Mapped[int] = mapped_column(ForeignKey("school_classes.id", ondelete="CASCADE"), nullable=False)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    # The foreign key stays nullable for a migration-safe schema, while the
+    # management service reassigns a departing teacher before removal so every
+    # operational class subject continues to have an explicit instructor.
+    teacher_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    school_class = relationship("SchoolClass", back_populates="teaching_assignments", foreign_keys=[class_id])
+    subject = relationship("Subject", back_populates="teaching_assignments", foreign_keys=[subject_id])
+    teacher = relationship("User", back_populates="teaching_assignments", foreign_keys=[teacher_id])
 
 
 class StudentGrade(Base):
@@ -136,8 +191,7 @@ class StudentGrade(Base):
 
 
 class ExamSubmissionEvent(Base):
-    """Immutable record registered when a school hits
-    'Publish Exam Marks to State'."""
+    """Immutable record registered when a school hits 'Publish Exam Marks to State'."""
 
     __tablename__ = "exam_submission_events"
     __table_args__ = (Index("idx_exam_events_school", "school_id", "published_at"),)

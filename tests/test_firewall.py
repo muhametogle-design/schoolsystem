@@ -16,6 +16,9 @@ FINANCIAL_ROUTES = [
     ("GET", "/api/v1/school/finance/invoices", None),
     ("POST", "/api/v1/school/finance/invoices", {"student_id": 1, "description": "x", "amount_due": 10}),
     ("POST", "/api/v1/school/finance/invoices/1/payments", {"amount": 1, "payment_method": "Cash"}),
+    # Billing contacts live on the school profile rather than invoice tables
+    # and are equally tenant-private.
+    ("GET", "/api/v1/school/profile", None),
 ]
 
 
@@ -40,6 +43,17 @@ def test_state_violations_are_audited(client, auth_headers):
 def test_teachers_blocked_from_financials(client, greenfield_teacher_headers):
     res = client.get("/api/v1/school/finance/summary", headers=greenfield_teacher_headers)
     assert res.status_code == 403
+
+
+def test_state_academic_serializers_omit_billing_fields(client, auth_headers):
+    directory = client.get("/api/v1/state/institutions", headers=auth_headers)
+    assert directory.status_code == 200
+    school = directory.json()["institutions"][0]
+    assert not {"billing", "billing_phone", "billing_email", "billing_address", "billing_notes"} & set(school)
+
+    overview = client.get(f"/api/v1/state/institutions/{school['id']}", headers=auth_headers)
+    assert overview.status_code == 200
+    assert not {"billing", "billing_phone", "billing_email", "billing_address", "billing_notes"} & set(overview.json())
 
 
 def test_school_roles_blocked_from_state_portal(client, greenfield_manager_headers, greenfield_teacher_headers):

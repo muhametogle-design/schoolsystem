@@ -9,7 +9,7 @@ from app.models import ExamSubmissionEvent, PrivateSchool, StudentGrade
 
 def _horizon_school_id() -> int:
     with SessionLocal() as db:
-        return db.query(PrivateSchool).filter_by(school_name="Horizon Preparatory School").one().id
+        return db.query(PrivateSchool).filter_by(school_name="Muse Yusuf Secondary School").one().id
 
 
 
@@ -26,7 +26,7 @@ def _draft_scope(client, horizon_manager_headers):
         ).json()["students"]
         if subjects and roster:
             return c, subjects[0], year_id, roster
-    raise AssertionError("No teachable scope found for Horizon")
+    raise AssertionError("No teachable scope found for Muse Yusuf")
 
 
 def _analytics_rows_for_scope(client, auth_headers, school_id, class_level, subject_name):

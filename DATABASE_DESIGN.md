@@ -1,64 +1,96 @@
 # Database Design
 
-Authoritative DDL: `sql/001_schema.sql` (tables + performance indexes),
-`sql/002_security_firewall.sql` (RLS, grants, immutability triggers),
-`sql/003_analytics_views.sql` (Views A/B/C). The SQLAlchemy models in
-`app/models/` mirror the schema so the demo tier runs on SQLite unchanged.
+Authoritative PostgreSQL 16 DDL:
+
+- [`sql/001_schema.sql`](sql/001_schema.sql) — relational tables, checks, and indexes
+- [`sql/002_security_firewall.sql`](sql/002_security_firewall.sql) — FORCE RLS,
+  grants, financial firewall, and immutability triggers
+- [`sql/003_analytics_views.sql`](sql/003_analytics_views.sql) — State academic
+  reporting views
+
+The SQLAlchemy models in `app/models/` mirror this schema for the SQLite local
+tier and automated tests.
 
 ## Entity map
 
 ```text
-private_schools ──┬── users (role: school_manager | teacher; NULL school = state)
-                  ├── school_classes (Class 1..12 + stream, CHECK-constrained)
-                  │      └── students (immutable STU-YYYY-XY123 national ID)
-                  ├── subjects (per class level)
-                  │      └── student_grades  ←── exam_submission_events (immutable)
-                  ├── live_attendance (per student per day, UNIQUE(student_id, date))
-                  ├── daily_submission_logs (UNIQUE(school_id, log_date) — 12PM deadline
-                  │                        + 3PM red alarm state)
-                  ├── communication_logs (Red_Alarm / notification outbox)
-                  └── 🔒 tuition_rates · student_invoices · payment_transactions
-                                        (financial firewall zone — no state access)
-academic_years (cross-tenant)      security_audit_log (firewall decisions)
+private_schools (unique two-letter school_code)
+  ├── school_roll_sequences (next roll integer per school)
+  ├── users
+  │     ├── school_manager / teacher (bound to one school)
+  │     └── state_admin / inspector / state_inspector (school_id NULL)
+  ├── school_classes (Class 1..12 + stream)
+  │     ├── students (immutable roll_number: XX-sequence)
+  │     └── teaching_assignments (one class + subject + teacher mapping)
+  ├── subjects (mandatory catalog per class level)
+  ├── student_grades ← exam_submission_events (append-only release ledger)
+  ├── live_attendance → daily_submission_logs (deadline/alarm state)
+  ├── communication_logs (notification outbox)
+  └── tenant-private finance
+        ├── tuition_rates
+        ├── student_invoices
+        └── payment_transactions
+
+academic_years (global calendar)     security_audit_log (guard decision evidence)
 ```
 
-## Key constraints
+A `Subject` describes a curriculum item at one school/class level. A
+`TeachingAssignment` is the authoritative mapping for each class stream and
+subject; it is not inferred from historical grade entry. Seed and State Admin
+provisioning create all ten core subjects and a mapped teacher for every class.
+Manager removal/deactivation of a teacher reassigns that work first, preserving
+the operational curriculum.
+
+## Key constraints and controls
 
 | Rule | Enforcement |
 |---|---|
-| Class levels restricted to Class 1–12 | `chk_class_level` CHECK |
-| Scores within 0–100 | `chk_score_range` CHECK |
-| One grade per (student, subject, year, exam) | `UNIQUE` constraint |
-| One attendance row per student per day | `uq_attendance_per_day` |
-| Worker UPSERT target | `UNIQUE(school_id, log_date)` on `daily_submission_logs` |
-| State users never bound to a tenant | `chk_state_user_has_no_school` |
-| National student ID never rewritten | trigger `trg_student_id_immutable` |
-| `exam_submission_events` append-only | trigger `trg_exam_event_immutable` |
-| Published marks cannot return to draft | trigger `trg_grade_publication_irreversible` |
+| School code is globally unique, exactly two uppercase letters | unique key + `chk_school_code` |
+| Class levels restricted to Class 1–12 | `chk_class_level` / `chk_subject_class_level` |
+| One class stream per school/level | `uq_class_per_school` |
+| One subject catalog code per school/level | `uq_subject_per_school` |
+| One teacher mapping per school/class/subject | `uq_class_subject_assignment` |
+| Roll numbers unique and never rewritten | unique key + `trg_student_id_immutable` |
+| School-code prefix cannot change after enrollment | API check + `trg_school_code_after_enrollment` |
+| Scores within 0–100 | `chk_score_range` |
+| One grade per student/subject/year/exam | `uq_grade_record` |
+| One attendance row per student/day | `uq_attendance_per_day` |
+| Worker UPSERT target | `uq_daily_log` on school/date |
+| State roles never bound to a tenant | `chk_state_user_has_no_school` |
+| Exam release ledger append-only | `trg_exam_event_immutable` |
+| Published marks cannot return to draft | `trg_grade_publication_irreversible` |
 
-## Performance indexes (per specification)
+## Roll allocation
 
-```sql
-CREATE INDEX idx_student_search_national_id ON students(national_student_id);
-CREATE INDEX idx_student_names               ON students(last_name, first_name);
-CREATE INDEX idx_grades_lookup               ON student_grades(school_id, class_id, subject_id);
-CREATE INDEX idx_attendance_compliance       ON live_attendance(date, school_id);
-CREATE INDEX idx_compliance_tracker          ON daily_submission_logs(log_date, alarm_triggered);
-```
+`school_roll_sequences.next_value` begins at `10000` for each tenant.
+Registration locks the sequence row (`SELECT … FOR UPDATE` in PostgreSQL),
+issues `school_code-next_value`, and advances the value in the same
+transaction. A State Admin can inspect or advance a sequence but cannot move
+it backward or reuse an issued roll. This keeps `NG-10023` style identifiers
+stable even after a student is withdrawn.
 
-Plus supporting indexes for the release valve, event ledger, communication
-feed and invoice ledger hot paths.
+## RLS and financial boundary
 
-## Analytics views (Phase 3)
+Every tenant table is FORCE-RLS protected. The request layer sets a trusted
+PostgreSQL session context only after it validates the signed token’s role and
+school binding against the current account row.
 
-* `state_compliance_map` — **View A**: every active school with today's
-  submission state, alarm flag and 🚨/⚠️/✅ status, alarms sorted first.
-* `state_student_lookup` — **View B**: statewide Class 1–12 deep search joined
-  with guardian + emergency contact details (queried by national ID or
-  `ILIKE` surname).
-* `state_grade_analytics` — **Query C**: per school/class/subject COUNT/AVG/MAX
-  benchmarking filtered by a correlated `EXISTS` against `exam_submission_events`
-  — only scores carrying a publication token event are pulled.
+- Tenant role: own school only.
+- State Admin: cross-school academic visibility plus tenant provisioning.
+- Inspector: cross-school read-only academic visibility.
+- Finance tables: state contexts match no readable rows.
+- `students.fee_status` is a finance-adjacent field and is omitted from the
+  `state_readonly` column grant as well as all State API serializers.
 
-The API mirrors all three in dialect-portable SQLAlchemy
-(`app/services/analytics.py`).
+See [`SECURITY_AND_RLS.md`](SECURITY_AND_RLS.md) for runtime role and deployment
+requirements.
+
+## State analytics views
+
+- `state_compliance_map` — active-school attendance status and Red Alarm state.
+- `state_student_lookup` — cross-school Class 1–12 lookup with roll numbers.
+- `state_grade_analytics` — school/class/subject benchmarks restricted to
+  published grades carrying a release event.
+
+The API mirrors these projections through dialect-portable SQLAlchemy in
+`app/services/analytics.py`, allowing the same flows in SQLite local mode.

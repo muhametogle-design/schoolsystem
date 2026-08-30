@@ -1,6 +1,6 @@
 -- ============================================================================
 -- IMPLEMENTATION PHASE 3 — INTERACTIVE QUERY ANALYTICS PLATFORM
--- PostgreSQL v14+ — Views A / B / C installed as first-class database views.
+-- PostgreSQL 16 — Views A / B / C installed as first-class database views.
 --
 -- The API layer (app/services/analytics.py) mirrors these exact projections
 -- in dialect-portable SQLAlchemy so the platform can also run its demo tier
@@ -44,6 +44,7 @@ SELECT
     sc.class_level,
     sc.class_stream,
     s.national_student_id,
+    s.roll_number,
     s.first_name,
     s.last_name,
     s.guardian_name,
@@ -76,7 +77,8 @@ FROM student_grades sg
 JOIN private_schools ps  ON sg.school_id = ps.id
 JOIN school_classes sc   ON sg.class_id = sc.id
 JOIN subjects sub        ON sg.subject_id = sub.id
-WHERE EXISTS (
+WHERE sg.is_published = TRUE
+  AND EXISTS (
     SELECT 1
     FROM exam_submission_events ese
     WHERE ese.school_id         = sg.school_id
@@ -87,5 +89,8 @@ WHERE EXISTS (
 )
 GROUP BY ps.school_name, sc.class_level, sub.subject_name
 ORDER BY ps.school_name, sc.class_level, sub.subject_name;
+
+-- The restricted reporting role receives these academic projections only.
+GRANT SELECT ON state_compliance_map, state_student_lookup, state_grade_analytics TO state_readonly;
 
 COMMIT;

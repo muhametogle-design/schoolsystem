@@ -48,23 +48,35 @@ def state_token(client):
 
 
 @pytest.fixture(scope="session")
+def state_admin_token(client):
+    return _login(client, "stateadmin@education.gov", "StateAdmin@2026")
+
+
+# Fixture names are retained for compatibility with the original test modules;
+# they now point at the requested five-school estate.
+@pytest.fixture(scope="session")
 def greenfield_manager_token(client):
-    return _login(client, "manager@greenfield.edu", "School@2026")
+    return _login(client, "manager@alqalam.edu.so", "School@2026")
 
 
 @pytest.fixture(scope="session")
 def greenfield_teacher_token(client):
-    return _login(client, "teacher@greenfield.edu", "Teach@2026")
+    return _login(client, "teacher@alqalam.edu.so", "Teach@2026")
 
 
 @pytest.fixture(scope="session")
 def horizon_manager_token(client):
-    return _login(client, "manager@horizon.edu", "School@2026")
+    return _login(client, "manager@museyusuf.edu.so", "School@2026")
 
 
 @pytest.fixture(scope="session")
 def auth_headers(state_token):
     return {"Authorization": f"Bearer {state_token}"}
+
+
+@pytest.fixture(scope="session")
+def state_admin_headers(state_admin_token):
+    return {"Authorization": f"Bearer {state_admin_token}"}
 
 
 @pytest.fixture(scope="session")

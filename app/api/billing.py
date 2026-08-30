@@ -27,7 +27,14 @@ from app.models import (
     TuitionRate,
     User,
 )
-from app.schemas import InvoiceCreate, PaymentCreate, TuitionRateCreate
+from app.schemas import (
+    InvoiceCreate,
+    InvoiceUpdate,
+    PaymentCreate,
+    PaymentUpdate,
+    TuitionRateCreate,
+    TuitionRateUpdate,
+)
 
 router = APIRouter(prefix="/api/v1/school/finance", tags=["finance-private 🔒"])
 
@@ -53,9 +60,9 @@ def billing_summary(user: User = Depends(manager_only), db: Session = Depends(ge
         "outstanding_balance": round(outstanding, 2),
         "invoice_counts": {
             "all": len(invoices),
-            "settled": sum(1 for i in invoices if i.status == "Settled"),
-            "partially_paid": sum(1 for i in invoices if i.status == "Partially_Paid"),
-            "outstanding": sum(1 for i in invoices if i.status == "Outstanding"),
+            "settled": sum(1 for i in invoices if i.status in ("PAID", "Settled")),
+            "partially_paid": sum(1 for i in invoices if i.status in ("PENDING", "Partially_Paid")),
+            "outstanding": sum(1 for i in invoices if i.status in ("NOT_PAID", "Outstanding")),
             "overdue": sum(1 for i in invoices if i.status == "Overdue"),
         },
     }
@@ -93,6 +100,46 @@ def create_rate(payload: TuitionRateCreate, user: User = Depends(manager_only), 
         db.rollback()
         raise HTTPException(409, "A rate for this class level + cycle already exists")
     return {"id": rate.id}
+
+
+def _rate_or_404(db: Session, school_id: int, rate_id: int) -> TuitionRate:
+    rate = db.query(TuitionRate).filter_by(id=rate_id, school_id=school_id).one_or_none()
+    if not rate:
+        raise HTTPException(404, "Tuition rate not found in this school")
+    return rate
+
+
+@router.patch("/tuition-rates/{rate_id}")
+def update_rate(
+    rate_id: int,
+    payload: TuitionRateUpdate,
+    user: User = Depends(manager_only),
+    db: Session = Depends(get_db),
+):
+    """Edit a tenant's private tuition configuration."""
+    rate = _rate_or_404(db, user.school_id, rate_id)
+    values = payload.model_dump(exclude_unset=True)
+    for field, value in values.items():
+        setattr(rate, field, value)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(409, "A rate for this class level + cycle already exists")
+    return {
+        "id": rate.id,
+        "class_level": rate.class_level,
+        "base_tuition_amount": float(rate.base_tuition_amount),
+        "billing_cycle": rate.billing_cycle,
+    }
+
+
+@router.delete("/tuition-rates/{rate_id}")
+def delete_rate(rate_id: int, user: User = Depends(manager_only), db: Session = Depends(get_db)):
+    rate = _rate_or_404(db, user.school_id, rate_id)
+    db.delete(rate)
+    db.commit()
+    return {"deleted": True, "rate_id": rate_id}
 
 
 @router.get("/invoices")
@@ -142,11 +189,61 @@ def create_invoice(payload: InvoiceCreate, user: User = Depends(manager_only), d
         description=payload.description,
         amount_due=payload.amount_due,
         due_date=payload.due_date,
-        status="Outstanding",
+        status="NOT_PAID",
     )
     db.add(invoice)
     db.commit()
     return {"id": invoice.id, "status": invoice.status}
+
+
+def _invoice_or_404(db: Session, school_id: int, invoice_id: int) -> StudentInvoice:
+    invoice = db.query(StudentInvoice).filter_by(id=invoice_id, school_id=school_id).one_or_none()
+    if not invoice:
+        raise HTTPException(404, "Invoice not found in this school")
+    return invoice
+
+
+def _recalculate_invoice(invoice: StudentInvoice) -> None:
+    paid = round(sum(float(payment.amount) for payment in invoice.payments), 2)
+    due = float(invoice.amount_due)
+    if paid > due + 0.001:
+        raise HTTPException(422, "Payments exceed the invoice amount due")
+    invoice.amount_paid = paid
+    if due == 0 or paid >= due - 0.001:
+        invoice.status = "PAID"
+    elif paid > 0:
+        invoice.status = "PENDING"
+    else:
+        invoice.status = "NOT_PAID"
+
+
+@router.patch("/invoices/{invoice_id}")
+def update_invoice(
+    invoice_id: int,
+    payload: InvoiceUpdate,
+    user: User = Depends(manager_only),
+    db: Session = Depends(get_db),
+):
+    invoice = _invoice_or_404(db, user.school_id, invoice_id)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(invoice, field, value)
+    _recalculate_invoice(invoice)
+    db.commit()
+    return {
+        "id": invoice.id,
+        "description": invoice.description,
+        "amount_due": float(invoice.amount_due),
+        "amount_paid": float(invoice.amount_paid),
+        "status": invoice.status,
+    }
+
+
+@router.delete("/invoices/{invoice_id}")
+def delete_invoice(invoice_id: int, user: User = Depends(manager_only), db: Session = Depends(get_db)):
+    invoice = _invoice_or_404(db, user.school_id, invoice_id)
+    db.delete(invoice)
+    db.commit()
+    return {"deleted": True, "invoice_id": invoice_id}
 
 
 @router.get("/student-profiles")
@@ -209,14 +306,7 @@ def record_payment(
     user: User = Depends(manager_only),
     db: Session = Depends(get_db),
 ):
-    invoice = (
-        db.query(StudentInvoice)
-        .filter_by(id=invoice_id, school_id=user.school_id)
-        .one_or_none()
-    )
-    if not invoice:
-        raise HTTPException(404, "Invoice not found in this school")
-
+    invoice = _invoice_or_404(db, user.school_id, invoice_id)
     new_paid = float(invoice.amount_paid) + payload.amount
     balance = float(invoice.amount_due) - new_paid
     if balance < -0.001:
@@ -232,11 +322,63 @@ def record_payment(
         received_by=user.id,
     )
     db.add(payment)
-    invoice.amount_paid = new_paid
-    invoice.status = "Settled" if balance <= 0.001 else "Partially_Paid"
+    # The relationship may not see the pending child until flush.
+    db.flush()
+    _recalculate_invoice(invoice)
     db.commit()
     return {
         "payment_id": payment.id,
         "invoice_status": invoice.status,
-        "balance": round(balance, 2),
+        "balance": round(float(invoice.amount_due) - float(invoice.amount_paid), 2),
+    }
+
+
+@router.patch("/invoices/{invoice_id}/payments/{payment_id}")
+def update_payment(
+    invoice_id: int,
+    payment_id: int,
+    payload: PaymentUpdate,
+    user: User = Depends(manager_only),
+    db: Session = Depends(get_db),
+):
+    invoice = _invoice_or_404(db, user.school_id, invoice_id)
+    payment = db.query(PaymentTransaction).filter_by(
+        id=payment_id, invoice_id=invoice.id, school_id=user.school_id
+    ).one_or_none()
+    if not payment:
+        raise HTTPException(404, "Payment not found for this invoice")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(payment, field, value)
+    db.flush()
+    _recalculate_invoice(invoice)
+    db.commit()
+    return {
+        "payment_id": payment.id,
+        "invoice_status": invoice.status,
+        "balance": round(float(invoice.amount_due) - float(invoice.amount_paid), 2),
+    }
+
+
+@router.delete("/invoices/{invoice_id}/payments/{payment_id}")
+def delete_payment(
+    invoice_id: int,
+    payment_id: int,
+    user: User = Depends(manager_only),
+    db: Session = Depends(get_db),
+):
+    invoice = _invoice_or_404(db, user.school_id, invoice_id)
+    payment = db.query(PaymentTransaction).filter_by(
+        id=payment_id, invoice_id=invoice.id, school_id=user.school_id
+    ).one_or_none()
+    if not payment:
+        raise HTTPException(404, "Payment not found for this invoice")
+    db.delete(payment)
+    db.flush()
+    _recalculate_invoice(invoice)
+    db.commit()
+    return {
+        "deleted": True,
+        "payment_id": payment_id,
+        "invoice_status": invoice.status,
+        "balance": round(float(invoice.amount_due) - float(invoice.amount_paid), 2),
     }

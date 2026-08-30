@@ -10,7 +10,7 @@
             └────────────┘      └───────────┬──────────────┘
                                             │
                               ┌─────────────▼─────────────┐
-                              │ PostgreSQL 14+ (primary)  │
+                              │ PostgreSQL 16 (primary)   │
                               │ + nightly pg_dump backups │
                               └───────────────────────────┘
 ```
@@ -22,7 +22,7 @@ so replicas are safe. For strict single-shot semantics, set
 
 ```bash
 # /etc/cron.d/schoolsystem-compliance
-0 15 * * 1-5 schoolsystem curl -s -X POST http://api.internal/api/v1/state/audit/run -H "Authorization: Bearer $WORKER_TOKEN"
+0 15 * * 1-5 schoolsystem curl -s -X POST http://api.internal/api/v1/state/audit/run -H "Authorization: Bearer $STATE_ADMIN_WORKER_TOKEN"
 ```
 
 ## 2. Provision with Docker Compose
@@ -56,12 +56,31 @@ by default — tighten this at the proxy to your frame origin, e.g. with Caddy:
 header Content-Security-Policy "frame-ancestors https://portal.example.gov"
 ```
 
-## 4. Database roles (defence in depth)
+## 4. Database roles and RLS (defence in depth)
 
-The application connects as `school_app` (see `sql/002_security_firewall.sql`).
-Keep the state analytics read path on the dedicated `state_readonly` role — it
-holds **zero grants** on the financial tier, and the financial tables carry
-DENY-ALL RLS for state roles. Never elevate `state_readonly`.
+Apply `sql/001_schema.sql`, load the seed estate, then apply
+`sql/002_security_firewall.sql` and `sql/003_analytics_views.sql` as the database owner. The latter enables
+**FORCE ROW LEVEL SECURITY**, so even a normal table owner must honour the API
+request context. Never use a PostgreSQL superuser or `BYPASSRLS` role for the
+API process.
+
+For least privilege, create a dedicated runtime login that inherits the
+provided `school_app` grants, then point `DATABASE_URL` at it:
+
+```sql
+CREATE ROLE schoolsystem_runtime LOGIN PASSWORD 'replace-with-a-long-secret';
+GRANT school_app TO schoolsystem_runtime;
+```
+
+The API derives `app.school_id` and `app.role` from the verified JWT on every
+request. Keep reporting-only state analytics on the dedicated
+`state_readonly` role — it has **zero grants** on the financial tier, while
+financial RLS adds an explicit state-role denial. Never elevate either runtime
+or `state_readonly` to superuser/BYPASSRLS.
+
+> The supplied Compose file uses the local `school` owner for convenience;
+> FORCE RLS still applies. Create and use the dedicated runtime role for a
+> real deployment.
 
 ## 5. Backups & recovery
 

@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import AUTH_COOKIE, get_current_user
+from app.api.deps import AUTH_COOKIE, STATE_ADMIN_ROLE, get_current_user
 from app.core.config import settings
-from app.core.db import get_db
+from app.core.db import get_db, set_rls_context
 from app.core.ratelimit import login_throttle
 from app.core.security import create_access_token, verify_password
 from app.models import PrivateSchool, User
@@ -22,8 +22,12 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     email = payload.email.lower()
     login_throttle.check(request, email)
 
+    # Login has no JWT yet. The endpoint is the sole trusted pre-auth lookup
+    # path and only uses this broad RLS context to fetch one email for Argon2
+    # verification; the context is reset by get_db for every later request.
+    set_rls_context(db, school_id=None, role=STATE_ADMIN_ROLE)
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-    if not user or not verify_password(payload.password, user.password_hash):
+    if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         login_throttle.record_failure(request, email)
         # Uniform message: never reveal whether the account exists.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")

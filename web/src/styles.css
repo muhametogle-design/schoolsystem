@@ -454,6 +454,20 @@ a {
   text-align: right;
 }
 
+.student-name-link {
+  color: var(--brand-700);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+}
+
+.student-name-link:hover,
+.student-name-link:focus-visible {
+  color: var(--brand-600);
+  text-decoration-color: currentColor;
+}
+
 /* ------------------------------ Accordion ------------------------------- */
 
 .accordion-group {
@@ -558,6 +572,12 @@ a {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--ink-soft);
+}
+
+.field__hint {
+  color: var(--ink-faint);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .input {
@@ -1492,4 +1512,427 @@ a {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-faint);
+}
+
+/* ---------------------- Tenant management extensions -------------------- */
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.management-form,
+.school-create-form,
+.teacher-form,
+.sequence-form {
+  margin: 0 0 18px;
+  padding: 16px;
+  border: 1px solid var(--brand-200);
+  border-radius: var(--radius-sm);
+  background: var(--brand-50);
+}
+
+.management-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.management-form--subject,
+.management-form--invoice {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.teacher-form__head,
+.school-create-form__head,
+.institution-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.school-create-form__head h3,
+.teacher-form__head h3 {
+  font-size: 15px;
+}
+
+.school-create-form__head span {
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.class-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 9px;
+}
+
+.class-picker__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 70px;
+  padding: 11px 12px;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  background: #fbfcfe;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.class-picker__item strong {
+  font-size: 13.5px;
+}
+
+.class-picker__item span {
+  color: var(--ink-faint);
+  font-size: 11.5px;
+}
+
+.class-picker__item:hover,
+.class-picker__item:focus-visible,
+.class-picker__item.is-active {
+  border-color: var(--brand-600);
+  background: var(--brand-50);
+  outline: none;
+}
+
+.class-breakdown__section h3,
+.state-class-breakdown h3,
+.state-class-breakdown h4,
+.teacher-profile-modal__section h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--brand-700);
+}
+
+.state-class-breakdown,
+.teacher-profile-modal__section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  color: var(--brand-600);
+  background: transparent;
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.link-button:hover,
+.link-button:focus-visible {
+  color: var(--brand-800);
+  outline: 2px solid var(--brand-200);
+  outline-offset: 2px;
+}
+
+.link-button--quiet {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.link-button--danger {
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.input--compact {
+  width: 100%;
+  max-width: 190px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.muted {
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.alert-inline {
+  display: inline-flex;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.alert-inline--warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.code-badge,
+.institution__code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 24px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--brand-800);
+  color: #fff;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.institution__code {
+  min-width: 20px;
+  min-height: 17px;
+  margin-right: 5px;
+  padding: 1px 4px;
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 10px;
+}
+
+.directory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.directory-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 152px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fbfcfe;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+.directory-card:hover,
+.directory-card:focus-visible {
+  border-color: var(--brand-600);
+  background: var(--brand-50);
+  outline: none;
+}
+
+.directory-card__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.directory-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  margin-top: auto;
+  color: var(--ink-faint);
+  font-size: 11.5px;
+}
+
+.sequence-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sequence-form__prefix {
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  font-family: var(--mono);
+  font-weight: 700;
+}
+
+.sequence-form .input {
+  max-width: 150px;
+}
+
+.status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-dot::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.status-dot--ok::before { background: var(--ok); }
+.status-dot--muted::before { background: var(--ink-faint); }
+
+.btn--danger {
+  color: var(--danger);
+  border-color: #efc4c0;
+  background: #fff8f7;
+}
+
+.payment-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0;
+  white-space: nowrap;
+}
+
+.detail-block--wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+  body {
+    font-size: 14px;
+  }
+
+  .sidebar {
+    gap: 12px;
+    padding: 14px 12px;
+  }
+
+  .sidebar__nav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .navlink {
+    flex: 0 0 auto;
+    padding: 8px 10px;
+    border-left: 0;
+    border-bottom: 3px solid transparent;
+  }
+
+  .navlink.is-active {
+    border-left-color: transparent;
+    border-bottom-color: var(--accent);
+  }
+
+  .sidebar__section {
+    display: none;
+  }
+
+  .sidebar__foot {
+    margin-top: 0;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    padding-top: 10px;
+  }
+
+  .sidebar__foot .btn {
+    width: auto;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    padding: 15px 16px;
+  }
+
+  .topbar__title {
+    font-size: 17px;
+  }
+
+  .topbar__sub {
+    max-width: 36ch;
+    font-size: 12px;
+  }
+
+  .content {
+    padding: 16px 12px 34px;
+  }
+
+  .card {
+    padding: 15px;
+  }
+
+  .grid--2 {
+    grid-template-columns: 1fr;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kpi {
+    padding: 13px;
+  }
+
+  .kpi__value {
+    font-size: 21px;
+  }
+
+  .class-picker,
+  .directory-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .class-picker__item {
+    min-height: 64px;
+    padding: 9px;
+  }
+
+  .management-form,
+  .management-form--subject,
+  .management-form--invoice {
+    grid-template-columns: 1fr;
+  }
+
+  .input--search {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .toolbar--search {
+    align-items: stretch;
+  }
+
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding: 18px 14px;
+  }
+
+  .drawer {
+    padding: 18px 14px;
+  }
+
+  .table {
+    font-size: 12px;
+  }
+
+  .table th,
+  .table td {
+    padding: 8px 7px;
+  }
 }

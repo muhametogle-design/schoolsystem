@@ -133,7 +133,7 @@ export default function Attendance() {
                       <table className="table">
                         <thead>
                           <tr>
-                            <th>NE-SID</th>
+                            <th>Roll no.</th>
                             <th>Student</th>
                             <th>Status</th>
                             <th>Mark</th>
@@ -144,7 +144,7 @@ export default function Attendance() {
                             const current = records[student.id] ?? 'Present';
                             return (
                               <tr key={student.ne_sid}>
-                                <td className="mono">{student.ne_sid}</td>
+                                <td className="mono">{student.roll_number ?? student.ne_sid}</td>
                                 <td>{student.full_legal_name}</td>
                                 <td>
                                   <Badge status={current}>{current}</Badge>

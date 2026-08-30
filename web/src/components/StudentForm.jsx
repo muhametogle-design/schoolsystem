@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { createStudent } from '../features/students/studentSlice';
 import { fetchClasses, selectClasses } from '../features/schools/schoolSlice';
@@ -18,6 +18,16 @@ const EMPTY = {
 };
 
 const FEE_OPTIONS = ['PAID', 'PENDING', 'NOT_PAID', 'SCHOLARSHIP'];
+const CLASS_LEVELS = Array.from({ length: 12 }, (_, index) => `Class ${index + 1}`);
+
+function compareClassTracks(left, right) {
+  const streamCompare = String(left.class_stream ?? '').localeCompare(
+    String(right.class_stream ?? ''),
+    undefined,
+    { numeric: true },
+  );
+  return streamCompare || Number(left.id) - Number(right.id);
+}
 
 /**
  * Registration form. Rendered inside a drawer on the Students page and inside
@@ -34,6 +44,18 @@ export default function StudentForm({ mode = 'drawer', title, onClose, onCreated
   useEffect(() => {
     if (classes.length === 0) dispatch(fetchClasses());
   }, [classes.length, dispatch]);
+
+  // Keep the registration selector predictable: each of the system's twelve
+  // class levels is shown in numeric order, regardless of API row ordering.
+  // A school can have multiple streams within a level (e.g. Class 7 A/B).
+  const classTracksByLevel = useMemo(() => {
+    const byLevel = new Map(CLASS_LEVELS.map((level) => [level, []]));
+    classes.forEach((klass) => {
+      if (byLevel.has(klass.class_level)) byLevel.get(klass.class_level).push(klass);
+    });
+    byLevel.forEach((tracks) => tracks.sort(compareClassTracks));
+    return byLevel;
+  }, [classes]);
 
   const set = (key) => (event) => setValues((v) => ({ ...v, [key]: event.target.value }));
 
@@ -83,20 +105,38 @@ export default function StudentForm({ mode = 'drawer', title, onClose, onCreated
         </label>
 
         <label className="field">
-          <span className="field__label">Class</span>
+          <span className="field__label">Class placement</span>
           <select
             className="input"
             value={values.current_class_id}
             onChange={set('current_class_id')}
+            aria-describedby="student-class-help"
             required
           >
-            <option value="">Select class…</option>
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.class_level} {c.class_stream}
-              </option>
-            ))}
+            <option value="">Select Class 1–Class 12…</option>
+            {CLASS_LEVELS.map((level) => {
+              const tracks = classTracksByLevel.get(level) ?? [];
+              if (tracks.length === 0) {
+                return (
+                  <option key={level} disabled>
+                    {level} — not configured for this school
+                  </option>
+                );
+              }
+              return (
+                <optgroup key={level} label={level}>
+                  {tracks.map((klass) => (
+                    <option key={klass.id} value={klass.id}>
+                      {level}{klass.class_stream ? ` · Stream ${klass.class_stream}` : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
           </select>
+          <span id="student-class-help" className="field__hint">
+            Choose one of the 12 class levels for this student.
+          </span>
         </label>
 
         <label className="field">
@@ -182,7 +222,7 @@ export default function StudentForm({ mode = 'drawer', title, onClose, onCreated
           {saving ? 'Registering…' : 'Register student'}
         </button>
         <span className="student-form__note">
-          An immutable NE-SID is issued automatically on save.
+          An immutable school roll number is issued automatically on save.
         </span>
       </footer>
     </form>

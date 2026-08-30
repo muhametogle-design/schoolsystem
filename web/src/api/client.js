@@ -3,17 +3,69 @@
  *
  * Two auth mechanisms are sent on every call: the bearer token (primary) and
  * an HttpOnly cookie via `credentials: 'include'` (fallback). The cookie is
- * what keeps sessions alive behind reverse proxies and embedded frames that
- * strip the Authorization header.
+ * what keeps sessions alive behind reverse proxies, embedded frames, and
+ * privacy-focused browsers that do not allow localStorage.
  */
 const TOKEN_KEY = 'ne_emis_token';
+const USER_KEY = 'ne_emis_user';
 
-export const getToken = () => localStorage.getItem(TOKEN_KEY);
+function storage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readStorage(key) {
+  try {
+    return storage()?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    const store = storage();
+    if (!store) return false;
+    store.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removeStorage(key) {
+  try {
+    storage()?.removeItem(key);
+  } catch {
+    // The HttpOnly cookie remains available as the session fallback.
+  }
+}
+
+export const getToken = () => readStorage(TOKEN_KEY);
 
 export const setToken = (token) => {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+  if (token) writeStorage(TOKEN_KEY, token);
+  else removeStorage(TOKEN_KEY);
 };
+
+export const getStoredUser = () => {
+  try {
+    const raw = readStorage(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const setStoredUser = (user) => {
+  if (user) writeStorage(USER_KEY, JSON.stringify(user));
+  else removeStorage(USER_KEY);
+};
+
+export const clearStoredUser = () => removeStorage(USER_KEY);
 
 export async function api(path, { method = 'GET', body } = {}) {
   const token = getToken();
@@ -35,8 +87,11 @@ export async function api(path, { method = 'GET', body } = {}) {
   }
 
   if (!res.ok) {
-    if (res.status === 401 && token) {
+    // A background cookie/session probe can finish after a new sign-in. Only
+    // clear storage if this response still belongs to the token it sent.
+    if (res.status === 401 && token && getToken() === token) {
       setToken(null);
+      clearStoredUser();
       window.dispatchEvent(new CustomEvent('ne-emis:session-expired'));
     }
     const detail =

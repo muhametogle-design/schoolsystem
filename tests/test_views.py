@@ -9,7 +9,7 @@ from app.models import Student, StudentGrade
 def test_view_a_compliance_map_orders_and_classifies(client, auth_headers):
     body = client.get("/api/v1/state/compliance-map", headers=auth_headers).json()
     schools = body["schools"]
-    assert len(schools) == 3  # exactly the three seeded active schools
+    assert len(schools) == 5  # exactly the five required seeded active schools
     assert all(s["state_license_number"] for s in schools)
 
     # Red alarms float to the top of the command map
@@ -17,8 +17,8 @@ def test_view_a_compliance_map_orders_and_classifies(client, auth_headers):
     assert flags == sorted(flags, reverse=True)
 
     statuses = {s["school_name"]: s["state_compliance_status"] for s in schools}
-    assert "✅ COMPLIANT" in statuses["Greenfield Academy"]
-    assert "✅ COMPLIANT" in statuses["Crescent International School"]
+    assert "✅ COMPLIANT" in statuses["ALQALAM SCHOOLS"]
+    assert "✅ COMPLIANT" in statuses["Nugaal High School"]
 
 
 def test_view_b_lookup_by_exact_national_id(client, auth_headers):
@@ -94,4 +94,4 @@ def test_live_attendance_visibility(client, auth_headers):
     assert "records" in body
     for r in body["records"]:
         assert r["status"] in ("Present", "Absent", "Late", "Excused")
-        assert r["national_student_id"].startswith("NE-SID-")
+        assert r["roll_number"].startswith(("IL-", "MY-", "NG-", "AQ-", "LB-"))

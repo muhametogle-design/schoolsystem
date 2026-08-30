@@ -1,76 +1,107 @@
-# Security Model & The Financial Firewall
+# Security Model and Financial Firewall
 
-## Threat model
+## Security boundary
 
-The State Government super-admin must have **absolute read-only visibility into
-academics** (student profiles, national IDs, guardian contacts, live
-attendance, *published* exam marks) while having **zero access to tenant
-financial data**. Tenants must be isolated from each other. Publication events
-and student IDs must be immutable.
+The system deliberately separates two views of the same education network:
 
-## The Critical Firewall Rule — three independent layers
+- **State Admin / Inspector:** cross-school academic oversight, class rosters,
+  teacher assignments, attendance, and *published* results.
+- **School Manager / Teacher:** one school's operational workspace.
+- **Finance:** a manager-only, tenant-private tier. State-facing routes do not
+  import a finance model or serialize tuition, invoices, payments, balances, or
+  billing contact fields.
 
-### Layer 1 — API routing (`app/api/deps.py`)
+`state_admin` may create/manage school tenants and roll sequence settings.
+`inspector` and legacy `state_inspector` are read-only. A state role is always
+rejected from every `/api/v1/school/*` endpoint, including non-financial tenant
+routes, rather than being silently assigned to a school.
 
-* No `/api/v1/state/*` route imports, serializes or queries any financial model —
-  the code path does not exist.
-* Every `/api/v1/school/*` route is wrapped by `require_school(...)`: a
-  `state_inspector` token receives **403 FIREWALL VIOLATION** and the attempt
-  is appended to `security_audit_log` (user, role, endpoint, verdict).
-* Billing routes additionally require `school_manager`.
+## Firewall layers
 
-### Layer 2 — PostgreSQL (`sql/002_security_firewall.sql`)
+### 1. API guards
 
-```sql
--- The state's dedicated role gets academics only:
-GRANT SELECT ON students, live_attendance, daily_submission_logs, … TO state_readonly;
--- tuition_rates, student_invoices, payment_transactions: deliberately NO grant.
+`app/api/deps.py` validates the signed JWT against the current `users` row on
+each request, rejects inactive or role/tenant-stale sessions, and scopes school
+requests to `user.school_id`.
 
--- And even if a grant appeared, DENY-ALL row policies stop the read:
-CREATE POLICY financial_firewall ON student_invoices
-    USING (school_id = app_current_school_id() AND NOT app_is_state_role());
+- `require_state` permits only State Admin/Inspector academic routes.
+- `require_state_admin` gates school provisioning and roll-sequence changes.
+- `require_school` rejects state roles before a tenant query can execute.
+- `school_manager` is required for billing and staff/curriculum administration.
+- A rejected boundary attempt is appended to `security_audit_log` without
+  leaking protected records in the response.
+
+### 2. PostgreSQL RLS and grants
+
+[`sql/002_security_firewall.sql`](sql/002_security_firewall.sql) enables and
+**forces** RLS for every tenant academic and financial table. The force clause
+matters: ordinary PostgreSQL table owners otherwise bypass RLS.
+
+The API resets pooled connection context to deny-by-default, then derives
+`app.school_id` and `app.role` from a verified JWT. PostgreSQL policies apply
+these settings to every tenant table. The authenticated user record is checked
+against its claims before an endpoint can query application data.
+
+`students.fee_status` is treated as billing data as well: the State API never
+serializes it and the `state_readonly` grant deliberately omits that column.
+
+Financial policies are explicit deny-all for state roles:
+
+```
+USING (school_id = app_current_school_id() AND NOT app_is_state_role())
 ```
 
-Because RLS has no permissive bypass for `state_readonly`, a state session
-cannot even count the rows.
+`state_readonly` receives only selected academic columns. It receives no grant
+on `tuition_rates`, `student_invoices`, or `payment_transactions`; the RLS
+financial denial remains a second protection if a future grant is made by
+mistake. `school_app` can append audit entries but cannot browse the global
+audit log.
 
-### Layer 3 — tests (`tests/test_firewall.py`)
+> **Deployment requirement:** Never run the web application as a PostgreSQL
+> superuser or a role with `BYPASSRLS`, because PostgreSQL itself permits those
+> roles to ignore RLS. Apply `001_schema.sql`, seed, then apply
+> `002_security_firewall.sql` as described in the README.
 
-Proves every financial endpoint answers 403 for state tokens, that teachers are
-locked out of billing, that school roles cannot reach the state portal, and
-that tenant registries never leak across schools.
+### 3. Regression tests
 
-## Tenant isolation
+The test suite covers state-finance denial, teacher billing denial, cross-tenant
+registry denial, Inspector mutation denial, State Admin provisioning,
+sequential rolls, complete class curriculum assignment, and cookie/token
+session behavior.
 
-* JWT carries `school_id` (NULL ⇒ state). Handlers inject it into every query.
-* PostgreSQL RLS policies (`tenant_isolation`) scope all tenant tables via
-  per-request session variables:
-  `SELECT set_config('app.school_id', :school_id, true)`.
-* `student_grades` RLS exposes only `is_published = TRUE` rows to state roles —
-  the release valve enforced inside the database itself.
+## Immutability and release controls
 
-## Immutability
-
-| Asset | Guard |
+| Protected asset | Enforcement |
 |---|---|
-| `students.national_student_id` | trigger blocks rewrite |
-| `exam_submission_events` | trigger blocks UPDATE/DELETE (append-only ledger) |
-| Published grades | trigger blocks recall to draft; API returns 409 on re-publish |
+| School code after rolls exist | State Admin API returns `409`; issued roll prefix cannot be changed |
+| Student `national_student_id` / `roll_number` | PostgreSQL trigger blocks rewrites |
+| Roll allocation | Per-school `school_roll_sequences` row advances transactionally; no count-derived reuse |
+| Exam publication event | Trigger blocks `UPDATE` and `DELETE` (append-only ledger) |
+| Published marks | Trigger blocks a published record being returned to draft |
+| Draft marks | State RLS only permits `is_published = TRUE` records |
 
-## Authentication & sessions
+## Authentication and live updates
 
-* Argon2id password hashing (`argon2-cffi`).
-* HS256 JWTs (rotate `JWT_SECRET_KEY`; 8h default expiry).
-* WebSocket `/ws?token=` authenticates the same JWT, closing with 4401 on
-  invalid credentials.
-* All firewall decisions are auditable in `security_audit_log`.
+- Password hashes use Argon2id.
+- Signed HS256 JWTs expire after the configured session period (eight hours by
+  default); set a unique `JWT_SECRET_KEY` in every real deployment.
+- Login sets an HttpOnly same-origin cookie in addition to returning the bearer
+  token. This permits phones or embedded browser contexts without localStorage
+to restore sessions after a reload.
+- `WS /ws` accepts the bearer query token or same-origin cookie and performs
+the same active-account/claim check as HTTP before it joins the live event bus.
+- Set `COOKIE_SECURE=true` and explicit `CORS_ORIGINS_RAW` values behind HTTPS
+  in a real deployment. Use `COOKIE_SAMESITE=none` only for a necessary
+  cross-site embed, which also requires Secure cookies.
 
-## Demo credentials
+## Seed credentials
 
-Seeded for evaluation only — rotate before any real deployment:
+Credentials exist only to make a new local estate testable. Rotate or replace
+them before staff receive access.
 
 | Role | Login |
 |---|---|
-| State inspector | `inspector@education.gov` / `State@2026` |
-| School manager | `manager@<school-domain>` / `School@2026` |
-| Teacher | `teacher@<school-domain>` / `Teach@2026` |
+| State Admin | `stateadmin@education.gov` / `StateAdmin@2026` |
+| Inspector | `inspector@education.gov` / `State@2026` |
+| School Manager | `manager@<seed-domain>` / `School@2026` |
+| Teacher | `teacher@<seed-domain>` / `Teach@2026` |

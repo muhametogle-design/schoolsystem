@@ -14,6 +14,7 @@ from app.models.academics import (
     Student,
     StudentGrade,
     Subject,
+    TeachingAssignment,
 )
 from app.models.base import Base
 from app.models.finance import (
@@ -23,7 +24,7 @@ from app.models.finance import (
     StudentInvoice,
     TuitionRate,
 )
-from app.models.identity import AcademicYear, PrivateSchool, User
+from app.models.identity import AcademicYear, PrivateSchool, SchoolRollSequence, User
 
 __all__ = [
     "Base",
@@ -39,11 +40,13 @@ __all__ = [
     "PaymentTransaction",
     "PrivateSchool",
     "SchoolClass",
+    "SchoolRollSequence",
     "SecurityAuditLog",
     "Student",
     "StudentGrade",
     "StudentInvoice",
     "Subject",
+    "TeachingAssignment",
     "TuitionRate",
     "User",
 ]
