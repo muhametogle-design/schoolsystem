@@ -53,6 +53,15 @@ def _class_label(klass: SchoolClass | None) -> str | None:
     return f"{klass.class_level} {klass.class_stream}" if klass else None
 
 
+def _class_sort_key(klass: SchoolClass) -> tuple[int, str, int]:
+    """Order Class 1 → Class 12 naturally, then stream (not lexicographically)."""
+    try:
+        level_number = int(klass.class_level.rsplit(" ", 1)[-1])
+    except (AttributeError, ValueError):
+        level_number = len(CLASS_LEVELS) + 1
+    return (level_number, (klass.class_stream or "").casefold(), klass.id)
+
+
 # --------------------------------------------------------------------------- #
 # Overview / compliance status
 # --------------------------------------------------------------------------- #
@@ -99,9 +108,9 @@ def list_classes(user: User = Depends(any_school_user), db: Session = Depends(ge
         db.query(SchoolClass)
         .options(joinedload(SchoolClass.students))
         .filter_by(school_id=user.school_id)
-        .order_by(SchoolClass.class_level, SchoolClass.class_stream)
         .all()
     )
+    rows.sort(key=_class_sort_key)
     return {
         "classes": [
             {

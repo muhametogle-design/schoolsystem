@@ -533,6 +533,17 @@ async function renderStudents() {
   const classes = await api("/api/v1/school/classes");
   API.classCache = classes.classes;
   const opts = classes.classes.map((c) => `<option value="${c.id}">${esc(c.class_label)} (${c.student_count})</option>`).join("");
+  const registrationClassOptions = Array.from({ length: 12 }, (_, index) => `Class ${index + 1}`)
+    .map((level) => {
+      const tracks = classes.classes.filter((klass) => klass.class_level === level);
+      if (!tracks.length) {
+        return `<option disabled>${esc(level)} — not configured for this school</option>`;
+      }
+      return tracks.map((klass) =>
+        `<option value="${klass.id}">${esc(level)}${klass.class_stream ? ` · Stream ${esc(klass.class_stream)}` : ""}</option>`
+      ).join("");
+    })
+    .join("");
   $("#content").innerHTML = `
     <div class="panel">
       <h3>Register new student</h3>
@@ -540,7 +551,7 @@ async function renderStudents() {
       <div class="form-grid">
         <div class="field">First name<input id="stFirst" /></div>
         <div class="field">Last name<input id="stLast" /></div>
-        <div class="field">Class<select id="stClass">${opts}</select></div>
+        <div class="field">Class (Class 1–Class 12)<select id="stClass">${registrationClassOptions}</select></div>
         <div class="field">Gender<select id="stGender"><option>Female</option><option>Male</option><option>Other</option></select></div>
         <div class="field">Date of birth<input type="date" id="stDob" /></div>
         <div class="field">Guardian name<input id="stGuardian" /></div>

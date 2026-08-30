@@ -56,6 +56,16 @@ def test_generator_retries_on_collision(monkeypatch):
     assert issued == "NE-SID-2026-QQ111", "generator returned a colliding ID instead of retrying"
 
 
+def test_registration_class_list_contains_all_twelve_levels_in_order(client, greenfield_manager_headers):
+    """The registration selector receives a complete Class 1 → Class 12 list."""
+    response = client.get("/api/v1/school/classes", headers=greenfield_manager_headers)
+    assert response.status_code == 200
+    classes = response.json()["classes"]
+
+    assert [row["class_level"] for row in classes] == [f"Class {number}" for number in range(1, 13)]
+    assert all(row["class_stream"] == "A" for row in classes)
+
+
 def test_registration_endpoint_issues_generated_id(client, greenfield_manager_headers):
     classes = client.get("/api/v1/school/classes", headers=greenfield_manager_headers).json()["classes"]
     res = client.post(

@@ -560,6 +560,12 @@ a {
   color: var(--ink-soft);
 }
 
+.field__hint {
+  color: var(--ink-faint);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .input {
   padding: 8px 11px;
   border: 1px solid var(--line-strong);
