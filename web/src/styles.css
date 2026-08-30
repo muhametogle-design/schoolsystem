@@ -454,6 +454,20 @@ a {
   text-align: right;
 }
 
+.student-name-link {
+  color: var(--brand-700);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+}
+
+.student-name-link:hover,
+.student-name-link:focus-visible {
+  color: var(--brand-600);
+  text-decoration-color: currentColor;
+}
+
 /* ------------------------------ Accordion ------------------------------- */
 
 .accordion-group {

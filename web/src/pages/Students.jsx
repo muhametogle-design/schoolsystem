@@ -88,7 +88,15 @@ export default function Students() {
                     {group.students.map((student) => (
                       <tr key={student.ne_sid}>
                         <td className="mono">{student.ne_sid}</td>
-                        <td>{student.full_legal_name}</td>
+                        <td>
+                          <Link
+                            className="student-name-link"
+                            to={`/school/students/${student.ne_sid}`}
+                            aria-label={`Open full profile for ${student.full_legal_name}`}
+                          >
+                            {student.full_legal_name}
+                          </Link>
+                        </td>
                         <td>{student.age ?? '—'}</td>
                         <td>{student.gender ?? '—'}</td>
                         <td>
