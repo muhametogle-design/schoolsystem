@@ -234,9 +234,16 @@ function enterApp() {
   document.querySelectorAll(".nav-item").forEach((btn) =>
     btn.addEventListener("click", () => setView(btn.dataset.view))
   );
-  connectWS();
   const first = nav.find((n) => n.id);
+  // Render the workspace before opening the optional real-time channel. Some
+  // mobile browsers reject local ws:// connections; that must never prevent a
+  // successfully authenticated user from entering the portal.
   setView(resolveLandingView(first ? first.id : "overview", nav));
+  try {
+    connectWS();
+  } catch (error) {
+    console.warn("Live alert channel unavailable; continuing without WebSocket.", error);
+  }
 }
 
 /* STEP 4 routing: /admin/state and /admin/school arm the matching workspace. */
