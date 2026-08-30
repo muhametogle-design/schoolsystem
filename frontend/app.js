@@ -2,9 +2,33 @@
  * Multi-tenant SaaS frontend: State portal (read-only academics + red alarms)
  * and tenant ERP (students, attendance, marks, private billing).
  */
+// The API also maintains an HttpOnly session cookie.  Local storage is a
+// convenience, not a requirement: some phone/private browsers deny writes to
+// it, and the portal must still enter after a successful sign-in.
+const storage = {
+  get(key) {
+    try { return window.localStorage.getItem(key); } catch { return null; }
+  },
+  set(key, value) {
+    try { window.localStorage.setItem(key, value); return true; } catch { return false; }
+  },
+  clear() {
+    try { window.localStorage.clear(); } catch { /* cookie session remains */ }
+  },
+};
+
+function storedUser() {
+  try {
+    const value = storage.get("user");
+    return value ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
+}
+
 const API = {
-  token: localStorage.getItem("token"),
-  user: JSON.parse(localStorage.getItem("user") || "null"),
+  token: storage.get("token"),
+  user: storedUser(),
   view: null,
   ws: null,
   classCache: [],
@@ -33,7 +57,7 @@ async function api(path, { method = "GET", body } = {}) {
   if (!res.ok) {
     if (res.status === 401 && API.token) {
       // Session expired / revoked — return to the sign-in screen cleanly.
-      localStorage.clear();
+      storage.clear();
       API.token = null; API.user = null;
       toast("Session expired", "Please sign in again.", "warn");
       setTimeout(() => location.reload(), 1200);
@@ -73,8 +97,10 @@ $("#loginForm").addEventListener("submit", async (e) => {
     });
     API.token = data.access_token;
     API.user = data.user;
-    localStorage.setItem("token", API.token);
-    localStorage.setItem("user", JSON.stringify(API.user));
+    // The cookie sent by the API is enough for the portal if this browser
+    // disallows persistent local storage (common in privacy modes on mobile).
+    storage.set("token", API.token);
+    storage.set("user", JSON.stringify(API.user));
     enterApp();
   } catch (err) {
     $("#loginError").textContent = err.message;
@@ -94,7 +120,7 @@ document.querySelectorAll(".demo-chip").forEach((chip) => {
 
 $("#logoutBtn").addEventListener("click", async () => {
   try { await api("/api/auth/logout", { method: "POST" }); } catch { /* best effort */ }
-  localStorage.clear();
+  storage.clear();
   API.token = null; API.user = null;
   if (API.ws) { try { API.ws.close(); } catch { /* noop */ } }
   location.reload();
@@ -857,5 +883,15 @@ async function applyPayment() {
 if (API.token && API.user) {
   enterApp();
 } else {
-  $("#loginView").classList.remove("hidden");
+  // A successful login always sets an HttpOnly cookie.  Recover from it when
+  // persistent browser storage is unavailable instead of leaving mobile users
+  // on the sign-in screen.
+  api("/api/auth/me")
+    .then((user) => {
+      API.user = user;
+      enterApp();
+    })
+    .catch(() => {
+      $("#loginView").classList.remove("hidden");
+    });
 }

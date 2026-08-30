@@ -1,24 +1,23 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
-import { api, getToken, setToken } from '../../api/client';
+import {
+  api,
+  clearStoredUser,
+  getStoredUser,
+  getToken,
+  setStoredUser,
+  setToken,
+} from '../../api/client';
 
-const USER_KEY = 'ne_emis_user';
-
-const readStoredUser = () => {
-  try {
-    const raw = localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
+// A cookie-backed session is deliberately supported when a mobile browser or
+// embedded context declines localStorage.  That is why this probe runs even
+// when there is no persisted bearer token.
 export const login = createAsyncThunk('auth/login', async ({ email, password }) => {
   const data = await api('/api/auth/login', {
     method: 'POST',
     body: { email: email.trim(), password },
   });
   setToken(data.access_token);
-  localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+  setStoredUser(data.user);
   return data.user;
 });
 
@@ -29,20 +28,28 @@ export const logout = createAsyncThunk('auth/logout', async () => {
     /* best effort — the local session is dropped regardless */
   }
   setToken(null);
-  localStorage.removeItem(USER_KEY);
+  clearStoredUser();
 });
 
-export const fetchMe = createAsyncThunk('auth/me', async () => api('/api/auth/me'));
+export const fetchMe = createAsyncThunk('auth/me', async () => {
+  try {
+    return await api('/api/auth/me');
+  } catch (error) {
+    // Keep the browser's cookie as the source of truth, but clear any stale
+    // JS-accessible session data so the sign-in form can recover cleanly.
+    setToken(null);
+    clearStoredUser();
+    throw error;
+  }
+});
 
 const authSlice = createSlice({
   name: 'auth',
   initialState: {
-    user: readStoredUser(),
+    user: getStoredUser(),
     token: getToken(),
-    // With a stored token we must confirm the session with the server before
-    // choosing a portal — a stale/corrupt localStorage role would otherwise
-    // render the wrong workspace and every call would 403.
-    bootstrapped: !getToken(),
+    // Confirm the cookie fallback before deciding which portal to render.
+    bootstrapped: false,
     status: 'idle',
     error: null,
   },
@@ -71,6 +78,7 @@ const authSlice = createSlice({
       .addCase(login.rejected, (state, action) => {
         state.status = 'failed';
         state.error = action.error.message;
+        state.bootstrapped = true;
       })
       .addCase(logout.fulfilled, (state) => {
         state.user = null;
@@ -81,11 +89,16 @@ const authSlice = createSlice({
       .addCase(fetchMe.fulfilled, (state, action) => {
         // Server response is authoritative — it corrects any stale local role.
         state.user = action.payload;
-        localStorage.setItem(USER_KEY, JSON.stringify(action.payload));
+        setStoredUser(action.payload);
         state.status = 'authenticated';
         state.bootstrapped = true;
       })
       .addCase(fetchMe.rejected, (state) => {
+        // A 401 here is normal for a first visit with no cookie yet; do not
+        // present it as an error, simply render the sign-in form.
+        state.user = null;
+        state.token = null;
+        state.status = 'idle';
         state.bootstrapped = true;
       });
   },

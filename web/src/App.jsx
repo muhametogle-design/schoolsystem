@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { clearError, fetchMe, selectUser } from './features/auth/authSlice';
-import { getToken } from './api/client';
 import Login from './pages/Login';
 import Layout from './components/Layout';
 import SchoolDashboard from './pages/SchoolDashboard';
@@ -36,9 +35,11 @@ export default function App() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
-  // Confirm the stored session with the server before choosing a portal.
+  // Confirm the bearer token or HttpOnly cookie with the server before
+  // choosing a portal. The cookie path keeps mobile/privacy browsers that
+  // decline localStorage able to complete a sign-in.
   useEffect(() => {
-    if (getToken()) dispatch(fetchMe());
+    dispatch(fetchMe());
   }, [dispatch]);
 
   useEffect(() => {
