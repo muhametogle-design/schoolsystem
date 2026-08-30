@@ -9,8 +9,8 @@ import {
 } from '../../api/client';
 
 // A cookie-backed session is deliberately supported when a mobile browser or
-// embedded context declines localStorage.  That is why this probe runs even
-// when there is no persisted bearer token.
+// embedded context declines localStorage. The in-memory login state lets that
+// browser enter immediately, while the cookie authorizes subsequent API calls.
 export const login = createAsyncThunk('auth/login', async ({ email, password }) => {
   const data = await api('/api/auth/login', {
     method: 'POST',
@@ -48,8 +48,9 @@ const authSlice = createSlice({
   initialState: {
     user: getStoredUser(),
     token: getToken(),
-    // Confirm the cookie fallback before deciding which portal to render.
-    bootstrapped: false,
+    // Without persistent storage, render the sign-in form right away rather
+    // than leave a mobile browser waiting on an unnecessary session probe.
+    bootstrapped: !getToken(),
     status: 'idle',
     error: null,
   },
