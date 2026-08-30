@@ -51,8 +51,9 @@ export default function App() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Probe on every fresh app load. This also restores an HttpOnly
-    // cookie-backed session when localStorage is unavailable on a phone.
+    // Probe on every fresh app load. This restores an HttpOnly cookie-backed
+    // session when localStorage is unavailable, while the auth slice leaves a
+    // no-token mobile user free to sign in immediately.
     dispatch(fetchMe());
   }, [dispatch]);
 

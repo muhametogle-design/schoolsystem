@@ -32,13 +32,18 @@ export const logout = createAsyncThunk('auth/logout', async () => {
 });
 
 export const fetchMe = createAsyncThunk('auth/me', async () => {
+  // Preserve a newly issued login token if an older background session probe
+  // returns late. This makes the sign-in form immediately usable on mobile.
+  const tokenAtRequest = getToken();
   try {
     return await api('/api/auth/me');
   } catch (error) {
-    // Keep the browser's cookie as the source of truth, but clear any stale
-    // JS-accessible session data so the sign-in form can recover cleanly.
-    setToken(null);
-    clearStoredUser();
+    // Keep the browser's cookie as the source of truth, but clear only the
+    // same stale JS-accessible session data that this probe actually used.
+    if (getToken() === tokenAtRequest) {
+      setToken(null);
+      clearStoredUser();
+    }
     throw error;
   }
 });
@@ -48,9 +53,10 @@ const authSlice = createSlice({
   initialState: {
     user: getStoredUser(),
     token: getToken(),
-    // Always probe /me once: an HttpOnly cookie may exist even when this
-    // browser does not permit JavaScript-accessible persistent storage.
-    bootstrapped: false,
+    // With no JS-accessible token, show the sign-in form without waiting for
+    // the optional cookie probe. A valid HttpOnly session will still restore
+    // in the background, but a slow/offline phone can sign in immediately.
+    bootstrapped: !getToken(),
     status: 'idle',
     error: null,
   },
@@ -88,6 +94,9 @@ const authSlice = createSlice({
         state.bootstrapped = true;
       })
       .addCase(fetchMe.fulfilled, (state, action) => {
+        // Do not let an older cookie probe overwrite a login currently being
+        // submitted from the visible form.
+        if (state.status === 'loading') return;
         // Server response is authoritative — it corrects any stale local role.
         state.user = action.payload;
         setStoredUser(action.payload);
@@ -95,6 +104,7 @@ const authSlice = createSlice({
         state.bootstrapped = true;
       })
       .addCase(fetchMe.rejected, (state) => {
+        if (state.status === 'loading') return;
         // A 401 here is normal for a first visit with no cookie yet; do not
         // present it as an error, simply render the sign-in form.
         state.user = null;

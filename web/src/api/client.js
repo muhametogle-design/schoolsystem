@@ -87,7 +87,9 @@ export async function api(path, { method = 'GET', body } = {}) {
   }
 
   if (!res.ok) {
-    if (res.status === 401 && token) {
+    // A background cookie/session probe can finish after a new sign-in. Only
+    // clear storage if this response still belongs to the token it sent.
+    if (res.status === 401 && token && getToken() === token) {
       setToken(null);
       clearStoredUser();
       window.dispatchEvent(new CustomEvent('ne-emis:session-expired'));
