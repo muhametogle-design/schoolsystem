@@ -1936,3 +1936,602 @@ a {
     padding: 8px 7px;
   }
 }
+
+/* ==========================================================================
+   PRODUCTION MODULES — substitution engine, syllabus tracker, data saver,
+   encrypted backups, biometric hardware.
+   ========================================================================== */
+
+/* ------------------------- Shared layout helpers ------------------------- */
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-head p {
+  margin: 4px 0 0;
+  max-width: 72ch;
+}
+
+.form-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.form-row .field {
+  min-width: 160px;
+}
+
+.field--grow {
+  flex: 1 1 220px;
+}
+
+.field > span {
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.field input,
+.field select {
+  padding: 8px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  min-width: 0;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--brand-200);
+  border-color: var(--brand-600);
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn--sm {
+  padding: 4px 10px;
+  font-size: 12.5px;
+  border-radius: var(--radius-sm);
+}
+
+.card--form h3 {
+  margin-bottom: 12px;
+}
+
+.actions-cell {
+  white-space: nowrap;
+}
+
+.table-sub {
+  display: block;
+  font-size: 12px;
+}
+
+/* ------------------------ Module 3 — Data Saver --------------------------- */
+
+.saver-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.saver-toggle__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.saver-toggle--on {
+  border-color: var(--ok);
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.saver-toggle--on .saver-toggle__dot {
+  background: var(--ok);
+}
+
+.saver-toggle--auto .saver-toggle__dot {
+  background: var(--accent);
+}
+
+.saver-banner {
+  margin: 0;
+  padding: 8px 24px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--line);
+}
+
+/* --------------------- Progress meter (text-aware) ------------------------ */
+
+.meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 130px;
+}
+
+.meter__track {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--brand-50);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand-600), var(--brand-700));
+}
+
+.meter__fill--done {
+  background: var(--ok);
+}
+
+.meter__value {
+  min-width: 52px;
+  text-align: right;
+  font-size: 12.5px;
+}
+
+.meter-text {
+  font-weight: 700;
+}
+
+.meter-text__label {
+  display: none;
+}
+
+/* ------------------- Module 3 — raw text metric tables -------------------- */
+
+.metrics-table {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metrics-table__row,
+.metrics-table li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 4px;
+}
+
+.metrics-table__summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 8px;
+  font-weight: 650;
+}
+
+/* --------------------- Module 1 — coverage panel -------------------------- */
+
+.coverage__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.coverage__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.coverage__slot {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: var(--canvas);
+}
+
+.coverage__slot.is-covered {
+  opacity: 0.75;
+  border-style: dashed;
+}
+
+.coverage__slot-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.coverage__slot-meta strong {
+  min-width: 130px;
+}
+
+.candidate-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.candidate {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.candidate__rank {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-weight: 700;
+}
+
+.candidate__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.candidate__reasons {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.candidate__reasons li {
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: var(--brand-50);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.candidate__side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.score {
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+}
+
+.score--high { background: var(--ok-bg); color: var(--ok); }
+.score--mid { background: var(--warn-bg); color: var(--warn); }
+.score--low { background: var(--danger-bg); color: var(--danger); }
+
+.coverage__reason {
+  margin: 12px 0 0;
+}
+
+/* --------------------------- Module 2 — syllabus --------------------------- */
+
+.syllabus-table .meter-cell {
+  min-width: 170px;
+}
+
+.row-flagged {
+  background: var(--danger-bg);
+}
+
+.inline-forms {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--brand-50);
+}
+
+/* -------------------------- Module 5 — biometrics -------------------------- */
+
+.tab-row {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--line);
+  margin-bottom: 14px;
+}
+
+.tab {
+  padding: 8px 16px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+}
+
+.tab.is-active {
+  color: var(--brand-700);
+  border-bottom-color: var(--brand-600);
+}
+
+.credential-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.credential-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.station-result {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--ok);
+  border-radius: var(--radius-sm);
+  background: var(--ok-bg);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* --------------------------- Module 4 — backups ---------------------------- */
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+
+.config-grid dt {
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.config-grid dd {
+  margin: 4px 0 0;
+}
+
+.hash {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   MODULE 3 — LOW-BANDWIDTH "DATA SAVER" MODE
+   Activated by <html data-saver="1"> (see web/src/features/ui/uiSlice.js).
+   Goals: strip animations, drop gradients/shadows, high-contrast typography,
+   and let components swap charts for raw text metrics.
+   ========================================================================== */
+
+html[data-saver='1'] *,
+html[data-saver='1'] *::before,
+html[data-saver='1'] *::after {
+  animation: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  background-image: none !important;
+  border-radius: 0 !important;
+}
+
+html[data-saver='1'] body {
+  background: #ffffff;
+  color: #000000;
+  font-size: 16px;
+  -webkit-font-smoothing: auto;
+}
+
+html[data-saver='1'] .sidebar {
+  background: #ffffff;
+  color: #000000;
+  border-right: 3px solid #000000;
+}
+
+html[data-saver='1'] .sidebar__brand,
+html[data-saver='1'] .sidebar__section {
+  border-color: #000000;
+}
+
+html[data-saver='1'] .sidebar__heading,
+html[data-saver='1'] .institution__name,
+html[data-saver='1'] .institution__meta,
+html[data-saver='1'] .user-chip__name,
+html[data-saver='1'] .user-chip__role {
+  color: #000000;
+}
+
+html[data-saver='1'] .navlink {
+  color: #000000;
+  border-left-color: transparent;
+}
+
+html[data-saver='1'] .navlink.is-active {
+  border-left: 4px solid #000000;
+  font-weight: 800;
+  background: #f0f0f0;
+}
+
+html[data-saver='1'] .topbar {
+  border-bottom: 3px solid #000000;
+}
+
+html[data-saver='1'] .topbar__title,
+html[data-saver='1'] .topbar__sub {
+  color: #000000;
+}
+
+html[data-saver='1'] .main {
+  background: #ffffff;
+}
+
+html[data-saver='1'] .kpi,
+html[data-saver='1'] .card,
+html[data-saver='1'] .coverage__slot,
+html[data-saver='1'] .candidate {
+  background: #ffffff;
+  border: 2px solid #000000;
+}
+
+html[data-saver='1'] .kpi__value {
+  color: #000000;
+  font-size: 30px;
+  font-weight: 800;
+}
+
+html[data-saver='1'] .kpi__label,
+html[data-saver='1'] .kpi__hint {
+  color: #000000;
+}
+
+html[data-saver='1'] .kpi--ok { border-left: 8px solid #006400; }
+html[data-saver='1'] .kpi--warn { border-left: 8px solid #8a5a00; }
+html[data-saver='1'] .kpi--danger { border-left: 8px solid #8b0000; }
+html[data-saver='1'] .kpi--info { border-left: 8px solid #00337f; }
+
+html[data-saver='1'] h1,
+html[data-saver='1'] h2,
+html[data-saver='1'] h3,
+html[data-saver='1'] h4,
+html[data-saver='1'] strong {
+  font-weight: 800;
+}
+
+html[data-saver='1'] .muted {
+  color: #333333;
+}
+
+html[data-saver='1'] .badge {
+  border: 2px solid #000000;
+  font-weight: 800;
+  color: #000000;
+  background: #ffffff;
+}
+
+html[data-saver='1'] .badge--ok { background: #d8f5dc; }
+html[data-saver='1'] .badge--warn { background: #ffefc4; }
+html[data-saver='1'] .badge--danger { background: #ffd9d6; }
+html[data-saver='1'] .badge--info { background: #dbe9ff; }
+
+html[data-saver='1'] .btn {
+  border: 2px solid #000000;
+  font-weight: 800;
+}
+
+html[data-saver='1'] .btn--primary {
+  background: #000000;
+  color: #ffffff;
+}
+
+html[data-saver='1'] .btn--ghost {
+  background: #ffffff;
+  color: #000000;
+}
+
+html[data-saver='1'] .table th {
+  border-bottom: 3px solid #000000;
+  color: #000000;
+}
+
+html[data-saver='1'] .table td {
+  border-bottom: 1px solid #000000;
+}
+
+html[data-saver='1'] .row-flagged {
+  background: #ffecec;
+  border-left: 8px solid #8b0000;
+}
+
+html[data-saver='1'] .saver-banner {
+  background: #ffefc4;
+  color: #000000;
+  border-bottom: 2px solid #000000;
+  font-weight: 800;
+}
+
+html[data-saver='1'] .meter,
+html[data-saver='1'] .trend,
+html[data-saver='1'] .bar-list__track,
+html[data-saver='1'] .stacked__bar {
+  display: none;
+}
+
+html[data-saver='1'] .saver-toggle {
+  border: 2px solid #000000;
+  color: #000000;
+  background: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

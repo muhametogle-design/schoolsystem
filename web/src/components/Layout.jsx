@@ -3,8 +3,10 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import Logo from './Logo';
 import Badge from './Badge';
+import DataSaverToggle from './DataSaverToggle';
 import { logout, selectIsStateAdmin, selectUser } from '../features/auth/authSlice';
 import { fetchInstitutions, selectInstitutions } from '../features/schools/schoolSlice';
+import { selectSaverActive, selectSaverReason } from '../features/ui/uiSlice';
 
 const SCHOOL_NAV = [
   { to: '/school', label: 'Dashboard', end: true },
@@ -12,6 +14,9 @@ const SCHOOL_NAV = [
   { to: '/school/classes', label: 'Classes & subjects' },
   { to: '/school/teachers', label: 'Teachers' },
   { to: '/school/attendance', label: 'Attendance' },
+  { to: '/school/substitutions', label: 'Substitutions' },
+  { to: '/school/syllabus', label: 'Syllabus tracker' },
+  { to: '/school/biometrics', label: 'Biometrics' },
   { to: '/school/billing', label: 'Billing', managerOnly: true },
 ];
 
@@ -19,6 +24,7 @@ const STATE_NAV = [
   { to: '/state', label: 'Live monitor', end: true },
   { to: '/state/directory', label: 'School directory' },
   { to: '/state/lookup', label: 'Roll number lookup' },
+  { to: '/state/backups', label: 'Encrypted backups', stateAdminOnly: true },
 ];
 
 export default function Layout({ portal }) {
@@ -27,8 +33,14 @@ export default function Layout({ portal }) {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const institutions = useSelector(selectInstitutions);
+  const saverActive = useSelector(selectSaverActive);
+  const saverReason = useSelector(selectSaverReason);
   const isState = portal === 'state';
-  const nav = (isState ? STATE_NAV : SCHOOL_NAV).filter((item) => !item.managerOnly || user?.role === 'school_manager');
+  const nav = (isState ? STATE_NAV : SCHOOL_NAV).filter(
+    (item) =>
+      (!item.managerOnly || user?.role === 'school_manager') &&
+      (!item.stateAdminOnly || user?.role === 'state_admin')
+  );
 
   useEffect(() => {
     if (isState) dispatch(fetchInstitutions());
@@ -77,8 +89,16 @@ export default function Layout({ portal }) {
             <h1 className="topbar__title">{isState ? 'State Education Authority' : user?.school_name ?? 'School Portal'}</h1>
             <p className="topbar__sub">{isState ? (isStateAdmin ? 'Tenant provisioning, roll-number oversight & academic visibility' : 'Read-only academic oversight across licensed schools') : 'Tenant ERP · students, staff, curriculum, attendance and private billing'}</p>
           </div>
-          <div className="topbar__right"><Badge status="Active">{isState ? stateRoleLabel : user?.role === 'school_manager' ? 'SCHOOL ADMIN' : 'TEACHING STAFF'}</Badge></div>
+          <div className="topbar__right">
+            <DataSaverToggle />
+            <Badge status="Active">{isState ? stateRoleLabel : user?.role === 'school_manager' ? 'SCHOOL ADMIN' : 'TEACHING STAFF'}</Badge>
+          </div>
         </header>
+        {saverActive && (
+          <p className="saver-banner" role="status">
+            Data Saver active{isState ? '' : ''}{saverReason && saverReason !== 'Manually enabled' ? ` — ${saverReason}` : ''}. Animations, gradients and chart graphics are replaced with raw text metrics for faster loading on 2G/3G.
+          </p>
+        )}
         <div className="content"><Outlet /></div>
       </main>
     </div>

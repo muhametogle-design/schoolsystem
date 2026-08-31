@@ -28,6 +28,25 @@ records out of State Admin and Inspector views.
   assignments.
 - Attendance deadline/red-alarm workflow, published-exam release valve, and
   live academic-structure refresh notifications.
+- **Teacher Absence & Substitution Engine** — logging an absence instantly
+  ranks available colleagues per affected timetable period using department
+  qualifications, subject specialization, and free (unassigned) period slots,
+  with one-click confirm and auto-cover.
+- **Syllabus Completion Tracker (Classes 1-12)** — per class/subject pacing
+  plans with midterm and final exam benchmark gates, audited progress
+  checkpoints, and automatic `On Track` / `Ahead` / `Behind Schedule` flags.
+- **Low-bandwidth Data Saver mode** — a global toggle (off / auto / on) that
+  follows the device's Network Information API; when active it strips
+  animations, gradients and shadows, switches to high-contrast typography,
+  and replaces every graphic chart with raw text metrics.
+- **Automated encrypted midnight backups** — a 00:00 worker produces SQLite
+  snapshots plus trigger-captured JSON deltas, seals both with AES-256-GCM,
+  records SHA-256/MD5 digests, and exposes a State-Admin console with
+  verification, downloads, and a full audit trail.
+- **Biometric hardware management** — WebAuthn enrollment and verification
+  (fingerprint readers, smartcards, platform authenticators) for students and
+  staff, with exam-hall-entry and staff-attendance registers and hardware
+  re-scan/re-enroll support.
 
 ## Roles and boundaries
 
@@ -101,7 +120,14 @@ psql "$PG_URL" -v ON_ERROR_STOP=1 -f sql/001_schema.sql
 DATABASE_URL="$APP_DATABASE_URL" .venv/bin/python scripts/seed_data.py
 psql "$PG_URL" -v ON_ERROR_STOP=1 -f sql/002_security_firewall.sql
 psql "$PG_URL" -v ON_ERROR_STOP=1 -f sql/003_analytics_views.sql
+psql "$PG_URL" -v ON_ERROR_STOP=1 -f sql/004_ops_modules.sql
 ```
+
+`sql/004_ops_modules.sql` creates the operations-module tables (substitution
+engine, syllabus tracker, backups, biometrics) and installs the row-level
+change-capture triggers that feed the JSON delta exports. Set
+`BACKUP_ENCRYPTION_KEY` before production: when it is empty the backup key is
+derived from `JWT_SECRET_KEY`, which is acceptable only for local demos.
 
 `002_security_firewall.sql` uses `FORCE ROW LEVEL SECURITY`; do not run the
 application as a PostgreSQL superuser or a role with `BYPASSRLS`. The API sets

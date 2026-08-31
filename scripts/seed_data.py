@@ -588,6 +588,12 @@ def seed(session: Session) -> None:
         )
         _add_private_finance(session, school, academic_year, students_by_class, manager, today)
 
+    # Operations tier: timetable, syllabus tracker, demo absences, biometric
+    # history (kept in a dedicated module so this file stays readable).
+    from scripts.seed_ops import seed_operations
+
+    seed_operations(session)
+
     session.commit()
 
 

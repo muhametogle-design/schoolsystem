@@ -40,6 +40,70 @@ billing contacts.
 | `GET/PATCH` | `/api/v1/state/schools/{school_id}/roll-sequence` | State Admin | View/control the next `XX-number` roll allocation |
 | `POST` | `/api/v1/state/audit/run` | State Admin | Run the attendance compliance audit immediately |
 
+## Production modules
+
+### Teacher Absence & Substitution Engine (`Module 1`)
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/school/timetable?day=` | Any school user | Weekly timetable grid (day 0 = Monday) |
+| `GET` | `/api/v1/school/absences?date=` | Any school user | Recent absences with confirmed substitutions |
+| `POST` | `/api/v1/school/absences` | Manager / Teacher | Log an absence; response carries the live coverage panel |
+| `GET` | `/api/v1/school/absences/{id}/recommendations` | Any school user | Recompute ranked substitutes for every affected slot |
+| `POST` | `/api/v1/school/absences/{id}/auto-assign` | Manager / Teacher | Confirm the best candidate for every open slot |
+| `POST` | `/api/v1/school/substitutions` | Manager / Teacher | Confirm one recommended candidate for one slot |
+| `DELETE` | `/api/v1/school/absences/{id}` | Manager / Teacher | Cancel an absence |
+
+Candidates are scored on subject specialization (currently teaches the
+subject), department/qualification keywords, department affinity, and free
+period availability; unavailable teachers are filtered out entirely.
+
+### Syllabus Completion Tracker (`Module 2`)
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/school/syllabus/summary?class_level=&term=` | Any school user | Classes 1-12 progress board with `On Track` / `Ahead` / `Behind Schedule` tags |
+| `GET` | `/api/v1/school/syllabus/plans/{id}` | Any school user | Plan detail with the audited checkpoint history |
+| `POST` | `/api/v1/school/syllabus/plans` | Manager | Create a pacing plan (units, midterm/final gates, term window) |
+| `PUT` | `/api/v1/school/syllabus/plans/{id}/benchmarks` | Manager | Adjust midterm/final benchmark gates |
+| `POST` | `/api/v1/school/syllabus/plans/{id}/progress` | Manager / Teacher | Record an audited progress checkpoint (cumulative units) |
+
+Expected completion is interpolated between term start (0%), the midterm gate,
+and the final gate; status is derived from the gap (±5 percentage points).
+
+### Encrypted Backups (`Module 4`, State Admin only)
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/admin/backups` | State Admin | Artefact list + pipeline configuration |
+| `POST` | `/api/v1/admin/backups/run` | State Admin | Manual export (`full_snapshot` or `json_delta`) |
+| `GET` | `/api/v1/admin/backups/{id}/verify` | State Admin | Recompute SHA-256/MD5 and audit the verdict |
+| `GET` | `/api/v1/admin/backups/{id}/download?format=encrypted\|decrypted` | State Admin | Download the AES-256-GCM container or the decrypted payload (both audited) |
+| `GET` | `/api/v1/admin/backups/audit` | State Admin | Audit trail (created/downloaded/verified/purged/…) |
+
+Artefacts are `NESBK1` containers: magic header, JSON header (nonce, scrypt
+KDF parameters), AES-256-GCM ciphertext + tag. The midnight scheduler exports
+a full snapshot plus a trigger-captured JSON delta daily at
+`BACKUP_TIME` (default 00:00 platform timezone).
+
+### Biometric Hardware Management (`Module 5`)
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/school/biometrics/overview` | Any school user | Registration status roster + KPI counts |
+| `GET` | `/api/v1/school/biometrics/verifications?purpose=&result=` | Any school user | Timestamped exam-hall / staff-attendance register |
+| `POST` | `/api/v1/school/biometrics/enroll/options` | Manager / Teacher | WebAuthn registration options (challenge, RP, exclude list) |
+| `POST` | `/api/v1/school/biometrics/enroll/verify` | Manager / Teacher | Verify attestation and persist the credential |
+| `POST` | `/api/v1/school/biometrics/verify/options` | Any school user | Resolve a person by roll number / staff ID; assertion options |
+| `POST` | `/api/v1/school/biometrics/verify/complete` | Any school user | Verify the assertion; stamp the register; broadcast live event |
+| `POST` | `/api/v1/school/biometrics/credentials/{id}/rescan` | Manager / Teacher | Hardware re-scan: revoke + fresh enrollment options |
+| `DELETE` | `/api/v1/school/biometrics/credentials/{id}` | Manager / Teacher | Revoke a credential |
+
+Server-side WebAuthn (ES256/RS256) is implemented in
+`app/services/biometrics.py` with origin, RP-ID hash, user-verification and
+signature-counter clone checks. `WEBAUTHN_RP_ID` / `WEBAUTHN_EXPECTED_ORIGINS`
+default to `auto` (resolved from the request host); pin them in production.
+
 ## School academic workspace
 
 These routes are automatically scoped to the signed-in school. `school_manager`

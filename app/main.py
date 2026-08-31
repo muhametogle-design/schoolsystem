@@ -23,6 +23,8 @@ from fastapi.staticfiles import StaticFiles
 from app.api import (
     analytics,
     auth,
+    backups,
+    biometrics,
     billing,
     health,
     school,
@@ -31,6 +33,8 @@ from app.api import (
     state_management,
     state_oversight,
     students,
+    absences,
+    syllabus,
     ws,
 )
 from app.core.config import settings
@@ -42,11 +46,12 @@ logger = logging.getLogger("main")
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 _scheduler_task: asyncio.Task | None = None
+_backup_task: asyncio.Task | None = None
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _scheduler_task
+    global _scheduler_task, _backup_task
 
     init_db()
 
@@ -70,6 +75,11 @@ async def lifespan(app: FastAPI):
 
         _scheduler_task = asyncio.create_task(compliance_scheduler_loop())
 
+    if settings.enable_backup_scheduler:
+        from app.services.scheduler import backup_scheduler_loop
+
+        _backup_task = asyncio.create_task(backup_scheduler_loop())
+
     if settings.app_env == "production" and settings.jwt_secret_key.startswith("dev-only"):
         logger.warning("⚠️  JWT_SECRET_KEY is still the development default — rotate it before serving traffic.")
 
@@ -81,6 +91,10 @@ async def lifespan(app: FastAPI):
         _scheduler_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await _scheduler_task
+    if _backup_task:
+        _backup_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _backup_task
 
 
 app = FastAPI(
@@ -146,6 +160,11 @@ app.include_router(management.router)
 app.include_router(analytics.router)
 app.include_router(state_oversight.router)
 app.include_router(billing.router)
+# Production modules: substitution engine, syllabus tracker, backups, biometrics.
+app.include_router(absences.router)
+app.include_router(syllabus.router)
+app.include_router(backups.router)
+app.include_router(biometrics.router)
 app.include_router(ws.router)
 
 

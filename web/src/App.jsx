@@ -16,6 +16,12 @@ import StateDashboard from './pages/StateDashboard';
 import InstitutionOverview from './pages/InstitutionOverview';
 import SchoolDirectory from './pages/SchoolDirectory';
 import StudentLookup from './pages/StudentLookup';
+import Substitutions from './pages/Substitutions';
+import Syllabus from './pages/Syllabus';
+import Biometrics from './pages/Biometrics';
+import Backups from './pages/Backups';
+import DataSaverToggle from './components/DataSaverToggle';
+import { useDataSaverDetection } from './hooks/useDataSaver';
 
 const STATE_ROLES = new Set(['state_admin', 'inspector', 'state_inspector']);
 const isStateUser = (user) => STATE_ROLES.has(user?.role);
@@ -36,6 +42,14 @@ function StateOnly({ children }) {
   return children;
 }
 
+/** Backups are a platform operation reserved to the State Admin. */
+function StateAdminOnly({ children }) {
+  const user = useSelector(selectUser);
+  if (!user) return <Navigate to="/" replace />;
+  if (user.role !== 'state_admin') return <Navigate to="/state" replace />;
+  return children;
+}
+
 /** Financial pages are private to the tenant School Admin role. */
 function ManagerOnly({ children }) {
   const user = useSelector(selectUser);
@@ -49,6 +63,9 @@ export default function App() {
   const bootstrapped = useSelector((state) => state.auth.bootstrapped);
   const dispatch = useDispatch();
   const navigate = useNavigate();
+
+  // Module 3: track device network signals for the low-bandwidth Data Saver.
+  useDataSaverDetection();
 
   useEffect(() => {
     // Probe on every fresh app load. This restores an HttpOnly cookie-backed
@@ -83,6 +100,9 @@ export default function App() {
         <Route path="/school/classes" element={<Classes />} />
         <Route path="/school/teachers" element={<Teachers />} />
         <Route path="/school/attendance" element={<Attendance />} />
+        <Route path="/school/substitutions" element={<Substitutions />} />
+        <Route path="/school/syllabus" element={<Syllabus />} />
+        <Route path="/school/biometrics" element={<Biometrics />} />
         <Route path="/school/billing" element={<ManagerOnly><Billing /></ManagerOnly>} />
         {/* Canonical report-card path from the brief. */}
         <Route path="/students/:neSid/report-card" element={<ReportCard />} />
@@ -96,6 +116,7 @@ export default function App() {
         <Route path="/state/directory" element={<SchoolDirectory />} />
         <Route path="/state/institutions/:schoolId" element={<InstitutionOverview />} />
         <Route path="/state/lookup" element={<StudentLookup />} />
+        <Route path="/state/backups" element={<StateAdminOnly><Backups /></StateAdminOnly>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

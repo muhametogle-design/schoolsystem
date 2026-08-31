@@ -15,6 +15,10 @@
  │ FastAPI application                                                       │
  │ /api/v1/school/*          tenant academic workspace                      │
  │ /api/v1/school/finance/*  manager-only private finance                    │
+ │ /api/v1/school/absences   M1 substitution engine (real-time)             │
+ │ /api/v1/school/syllabus   M2 syllabus tracker (Classes 1-12)             │
+ │ /api/v1/admin/backups     M4 encrypted backup console                    │
+ │ /api/v1/school/biometrics M5 WebAuthn enrollment + register              │
  │ /api/v1/state/*           academic oversight + State Admin provisioning  │
  │ /ws                        authenticated live event bus                    │
  │ React build                primary interface served at /                  │
@@ -78,11 +82,45 @@ Teacher or Manager records grades (draft)
   → State analytics can read only the released academic data
 ```
 
+## Operations modules (production tier)
+
+```text
+Module 1  Absence logged → engine projects the absent teacher's timetable
+          slots for the date → filters colleagues (same tenant, active, not
+          absent, free at that period) → scores by subject specialization,
+          department qualifications, department affinity and load → ranked
+          coverage panel → confirm or auto-cover (WS: absence_logged,
+          substitution_assigned).
+
+Module 2  Per class+subject pacing plans: expected % interpolated between
+          term start (0%) → midterm gate → final gate; audited checkpoints;
+          status tags: Ahead (>= +5 pts), Behind Schedule (< -5 pts), else
+          On Track.
+
+Module 3  Data Saver toggle (off/auto/on; auto follows Network Information
+          API). html[data-saver='1'] CSS strips animations/gradients/shadows
+          and raises contrast; chart components render raw text metrics;
+          the client sends X-Data-Saver: 1.
+
+Module 4  Row-level triggers → data_change_log. Midnight worker: online
+          SQLite snapshot OR JSON delta chained from the last snapshot's
+          change-log head → AES-256-GCM seal (scrypt key, NESBK1 container)
+          → SHA-256 + MD5 digests → audit trail (created/verified/downloaded
+          /purged). Retention purge after BACKUP_RETENTION_DAYS.
+
+Module 5  WebAuthn ceremonies implemented in-process (CBOR decoder, COSE
+          keys, ES256/RS256 assertion verification, counter clone checks).
+          Enrollment (fingerprint/smartcard/platform), verification station
+          (exam_hall_entry / staff_attendance registers with timestamps),
+          hardware re-scan (revoke + re-enroll).
+```
+
 ## Technologies
 
 - **Backend:** FastAPI, SQLAlchemy 2.0, Pydantic, PyJWT, Argon2id
 - **Frontend:** React 18, Redux Toolkit, React Router, Vite
 - **Realtime:** native FastAPI WebSockets
+- **Crypto:** `cryptography` (AES-256-GCM backup containers, WebAuthn ES256/RS256)
 - **Database:** PostgreSQL 16 in hardened deployments; SQLite for local runs
 - **Deployment:** multi-stage Docker build compiles the React app into the
   FastAPI runtime image

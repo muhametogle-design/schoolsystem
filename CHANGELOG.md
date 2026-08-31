@@ -4,6 +4,45 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] — 2026-08-31
+
+### Added — Production modules
+
+- **Module 1 — Teacher Absence & Substitution Engine**: weekly
+  `timetable_slots` grid with class/teacher double-booking constraints,
+  `teacher_absences` + `substitution_assignments` workflow, real-time ranked
+  coverage recommendations (subject specialization, department
+  qualifications, free period slots), one-click auto-cover, and
+  `absence_logged` / `substitution_assigned` WebSocket events.
+- **Module 2 — Syllabus Completion Tracker (Classes 1-12)**:
+  `syllabus_plans` with midterm/final benchmark gates per class and subject,
+  audited `syllabus_progress_entries` checkpoints, pace engine
+  (start/midterm/end interpolation) driving `On Track` / `Ahead` /
+  `Behind Schedule` status tags, and a Classes 1-12 tracking board.
+- **Module 3 — Low-bandwidth Data Saver mode**: global off/auto/on toggle
+  following the Network Information API (Save-Data, 2G/3G), `data-saver` CSS
+  layer that strips animations/gradients/shadows and raises typographic
+  contrast, chart primitives replaced by raw text metric tables, and
+  `X-Data-Saver` request signalling.
+- **Module 4 — Automated encrypted midnight backups**: SQLite change-capture
+  triggers feeding `data_change_log` (PostgreSQL equivalents in
+  `sql/004_ops_modules.sql`), 00:00 scheduler producing online SQLite
+  snapshots and JSON deltas chained from the last snapshot, AES-256-GCM
+  sealing (scrypt-derived keys, `NESBK1` container), SHA-256 + MD5 digests,
+  integrity verification, audited downloads, retention purge, and a State-Admin
+  backup console.
+- **Module 5 — Biometric hardware management**: self-contained WebAuthn
+  implementation (CBOR decoder, ES256/RS256 verification, origin/RP-ID/UV and
+  clone-detection checks), credential lifecycle (enroll, revoke, re-scan),
+  exam-hall-entry and staff-attendance verification registers with
+  timestamps, and a QA simulated reader for hardware-free environments.
+
+### Changed
+- Seeded schools now carry subject-specialist teachers, a conflict-free
+  two-periods-per-day timetable, Class 1-12 syllabus plans, and demo
+  biometric verification history.
+- `cryptography` added to the runtime dependencies (AES-256-GCM + ECDSA).
+
 ## [1.0.0] — 2026-08-29
 
 ### Added — Initial release

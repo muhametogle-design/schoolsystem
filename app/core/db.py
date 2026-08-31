@@ -248,3 +248,10 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     apply_column_migrations()
+    # Module 4: install the row-level change-capture triggers that feed the
+    # JSON delta export (SQLite tier bootstraps its own schema; PostgreSQL is
+    # handled by sql/004_ops_modules.sql).
+    from app.services.backup import install_sqlite_change_triggers
+
+    with engine.begin() as connection:
+        install_sqlite_change_triggers(connection)

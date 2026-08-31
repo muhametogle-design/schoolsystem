@@ -268,3 +268,114 @@ class PaymentUpdate(BaseModel):
     amount: float | None = Field(default=None, gt=0)
     payment_method: str | None = Field(default=None, pattern="^(Cash|Bank_Transfer|Mobile_Money|Card)$")
     reference_number: str | None = Field(default=None, max_length=100)
+
+
+# ===========================================================================
+# Module 1 — Teacher absence & substitution engine
+# ===========================================================================
+
+
+class AbsenceCreate(BaseModel):
+    teacher_id: int
+    absence_date: dt.date | None = None  # defaults to today (platform tz)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class SubstitutionConfirm(BaseModel):
+    absence_id: int
+    period_number: int
+    class_id: int
+    substitute_teacher_id: int
+
+
+# --- Timetable ---
+
+
+class TimetableSlotRead(BaseModel):
+    id: int
+    class_id: int
+    class_label: str | None = None
+    subject_name: str | None = None
+    teacher_id: int
+    teacher_name: str | None = None
+    day_of_week: int
+    period_number: int
+
+
+# ===========================================================================
+# Module 2 — Syllabus completion tracker
+# ===========================================================================
+
+
+class SyllabusPlanCreate(BaseModel):
+    class_id: int
+    subject_id: int
+    term: str = Field(default="Term 1", max_length=50)
+    total_units: int = Field(gt=0, le=500)
+    midterm_target_pct: float = Field(default=45, ge=0, le=100)
+    final_target_pct: float = Field(default=100, ge=0, le=100)
+    term_start: dt.date | None = None
+    midterm_date: dt.date | None = None
+    term_end: dt.date | None = None
+
+
+class SyllabusBenchmarkUpdate(BaseModel):
+    midterm_target_pct: float | None = Field(default=None, ge=0, le=100)
+    final_target_pct: float | None = Field(default=None, ge=0, le=100)
+    midterm_date: dt.date | None = None
+    term_start: dt.date | None = None
+    term_end: dt.date | None = None
+
+
+class SyllabusProgressCreate(BaseModel):
+    entry_date: dt.date | None = None  # defaults to today
+    units_after: int = Field(ge=0, le=500)
+    note: str | None = Field(default=None, max_length=300)
+
+
+# ===========================================================================
+# Module 4 — Encrypted backups (state-admin only)
+# ===========================================================================
+
+
+class BackupRunRequest(BaseModel):
+    kind: str = Field(default="auto", pattern="^(auto|full_snapshot|json_delta)$")
+
+
+# ===========================================================================
+# Module 5 — Biometric hardware management (WebAuthn)
+# ===========================================================================
+
+
+class BiometricEnrollOptionsRequest(BaseModel):
+    owner_type: str = Field(pattern="^(student|staff)$")
+    owner_id: int
+    method: str = Field(default="fingerprint", pattern="^(fingerprint|smartcard|platform|usb_key|simulated)$")
+
+
+class BiometricEnrollVerifyRequest(BaseModel):
+    owner_type: str = Field(pattern="^(student|staff)$")
+    owner_id: int
+    method: str = Field(default="fingerprint", pattern="^(fingerprint|smartcard|platform|usb_key|simulated)$")
+    credential_id: str = Field(min_length=8, max_length=512)
+    client_data_b64: str
+    attestation_object_b64: str
+    transports: list[str] = Field(default_factory=list)
+    expected_challenge: str
+
+
+class BiometricVerifyOptionsRequest(BaseModel):
+    purpose: str = Field(pattern="^(exam_hall_entry|staff_attendance|enrollment_check)$")
+    owner_type: str = Field(pattern="^(student|staff)$")
+    identifier: str = Field(min_length=1, max_length=255)
+
+
+class BiometricVerifyCompleteRequest(BaseModel):
+    purpose: str = Field(pattern="^(exam_hall_entry|staff_attendance|enrollment_check)$")
+    owner_type: str = Field(pattern="^(student|staff)$")
+    owner_id: int
+    credential_id: str = Field(min_length=8, max_length=512)
+    client_data_b64: str
+    authenticator_data_b64: str
+    signature_b64: str
+    expected_challenge: str

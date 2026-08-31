@@ -13,6 +13,21 @@ tier and automated tests.
 
 ## Entity map
 
+### Operations tier (sql/004_ops_modules.sql)
+
+| Table | Purpose |
+|---|---|
+| `timetable_slots` | Weekly period grid; unique per (school, class, day, period) and (school, teacher, day, period) |
+| `teacher_absences` | One absence per teacher per date; `logged → covered / cancelled` |
+| `substitution_assignments` | Confirmed covers with frozen engine score/reason |
+| `syllabus_plans` | Class+subject pacing contract with midterm/final benchmark gates |
+| `syllabus_progress_entries` | Audited cumulative-unit checkpoints |
+| `data_change_log` | Row-level change feed written by triggers (JSON payload per row) |
+| `backup_records` | Artefact metadata: kind, size, SHA-256, MD5, encryption, status |
+| `backup_audit_events` | Admin audit trail (created/verified/downloaded/purged) |
+| `biometric_credentials` | WebAuthn credentials (COSE public key, sign counter, method) |
+| `biometric_verification_logs` | Timestamped exam-hall-entry / staff-attendance register |
+
 ```text
 private_schools (unique two-letter school_code)
   ├── school_roll_sequences (next roll integer per school)
