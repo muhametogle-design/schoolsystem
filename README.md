@@ -46,31 +46,34 @@ fields, tuition, invoices, transactions, or balances.
 
 ### Windows PowerShell (recommended on Windows)
 
-From PowerShell, in a copy of this repository:
+Do **not** change your machine execution policy. Use the `.cmd` launchers, which
+run the scripts with `-ExecutionPolicy Bypass` for that command only.
+
+If PowerShell asks *Do you want to change the execution policy?*, type `N`
+(or press Enter). Then run:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\scripts\windows\Check-Environment.ps1
-.\scripts\windows\Run-SchoolSystem.ps1
+cd schoolsystem
+.\scripts\windows\Check-Environment.cmd
+.\scripts\windows\Run-SchoolSystem.cmd
 ```
 
-`Run-SchoolSystem.ps1` creates `.venv`, installs Python and Node dependencies,
+`Run-SchoolSystem.cmd` creates `.venv`, installs Python and Node dependencies,
 builds the React portal, and starts the API on `http://127.0.0.1:8000`.
 
-| Script | Purpose |
+| Command | Purpose |
 |---|---|
-| `scripts\windows\Check-Environment.ps1` | Verify Python, Node, npm, Git, and optional Docker |
-| `scripts\windows\Run-SchoolSystem.ps1` | Install, build, and run the portal |
-| `scripts\windows\Invoke-Tests.ps1` | pytest + React production build |
-| `scripts\windows\Reset-DemoData.ps1` | Reload the five-school SQLite demo estate |
+| `scripts\windows\Check-Environment.cmd` | Verify Python, Node, npm, Git, and optional Docker |
+| `scripts\windows\Run-SchoolSystem.cmd` | Install, build, and run the portal |
+| `scripts\windows\Invoke-Tests.cmd` | pytest + React production build |
+| `scripts\windows\Reset-DemoData.cmd` | Reload the five-school SQLite demo estate |
 
 If you do not have the repo yet:
 
 ```powershell
 git clone https://github.com/muhametogle-design/schoolsystem.git
 cd schoolsystem
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\scripts\windows\Run-SchoolSystem.ps1
+.\scripts\windows\Run-SchoolSystem.cmd
 ```
 
 ### React production interface (recommended)
