@@ -27,6 +27,8 @@ dialect-portable or gate PostgreSQL-only features behind `IS_SQLITE`.
 | `make seed` | Reseed demo data |
 | `make docker` | Full PostgreSQL 16 stack |
 | `make psql` | psql shell into the compose database |
+| `scripts\windows\Run-SchoolSystem.ps1` | Windows: install, build, and run |
+| `scripts\windows\Invoke-Tests.ps1` | Windows: pytest + React build |
 
 ## Quality bar
 
