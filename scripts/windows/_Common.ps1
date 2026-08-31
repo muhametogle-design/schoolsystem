@@ -1,4 +1,4 @@
-# Shared helpers for SchoolSystem Windows scripts. Dot-source from sibling scripts.
+﻿# Shared helpers for SchoolSystem Windows scripts. Dot-source from sibling scripts.
 $ErrorActionPreference = 'Stop'
 
 function Get-RepoRoot {
@@ -57,7 +57,8 @@ function Invoke-Native {
         }
         & $FilePath @ArgumentList
         if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) {
-            throw "Command failed ($LASTEXITCODE): $FilePath $($ArgumentList -join ' ')"
+            $joined = $ArgumentList -join ' '
+            throw "Command failed (${LASTEXITCODE}): $FilePath $joined"
         }
     }
     finally {
@@ -72,10 +73,10 @@ function Ensure-VirtualEnv {
 
     Write-Host 'Creating Python virtual environment in .venv ...'
     $launcher = Get-PythonLauncher
-    $args = @()
-    $args += $launcher.PrefixArgs
-    $args += @('-m', 'venv', '.venv')
-    Invoke-Native -FilePath $launcher.File -ArgumentList $args -WorkingDirectory $RepoRoot
+    $pyArgs = @()
+    $pyArgs += $launcher.PrefixArgs
+    $pyArgs += @('-m', 'venv', '.venv')
+    Invoke-Native -FilePath $launcher.File -ArgumentList $pyArgs -WorkingDirectory $RepoRoot
     $venvPython = Get-VenvPython -RepoRoot $RepoRoot
     if (-not $venvPython) {
         throw 'Virtual environment was created but python.exe was not found under .venv.'
@@ -109,11 +110,16 @@ function Build-ReactWorkspace {
 function Get-DockerExe {
     $cmd = Get-Command docker -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
+    $pf86 = ${env:ProgramFiles(x86)}
     $candidates = @(
-        "$env:ProgramFiles\Docker\Docker\resources\bin\docker.exe",
-        "${env:ProgramFiles(x86)}\Docker\Docker\resources\bin\docker.exe",
-        "$env:LOCALAPPDATA\Docker\cli-plugins\docker.exe"
+        (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin\docker.exe')
     )
+    if ($pf86) {
+        $candidates += (Join-Path $pf86 'Docker\Docker\resources\bin\docker.exe')
+    }
+    if ($env:LOCALAPPDATA) {
+        $candidates += (Join-Path $env:LOCALAPPDATA 'Docker\cli-plugins\docker.exe')
+    }
     foreach ($path in $candidates) {
         if ($path -and (Test-Path $path)) { return $path }
     }
