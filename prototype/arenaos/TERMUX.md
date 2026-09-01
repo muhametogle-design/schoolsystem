@@ -97,7 +97,7 @@ Prefer another host? Netlify CLI works straight from Termux and needs no repo ad
 
 ```bash
 cd prototype/arenaos && npm run build
-npx netlify-cli deploy --prod --dir dist      # prints the live URL
+npx netlify-cli deploy --build --dir dist   # prints the live URL
 ```
 
 Netlify's build command does the same remotely if you connect the repo instead.
