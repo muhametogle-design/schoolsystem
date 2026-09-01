@@ -7,6 +7,8 @@ import tailwindcss from '@tailwindcss/vite';
 // in web/ being touched at all. There is deliberately no /api proxy — this
 // prototype runs entirely on the mock data inside ArenaOS.jsx.
 export default defineConfig({
+  // Relative base so dist/ works from any host, subpath or the filesystem.
+  base: './',
   plugins: [react(), tailwindcss()],
   server: {
     host: '0.0.0.0',
@@ -16,6 +18,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // Relative asset paths so `npm run build` output can be opened from any
+    // host — including `python -m http.server` on Termux, or straight off the
+    // filesystem — without knowing the port or domain in advance.
+    assetsDir: '.',
+    rollupOptions: { output: { entryFileNames: 'app.js', assetFileNames: '[name][extname]' } },
   },
   // Behavioural checks for the prototype fixes (src/ArenaOS.test.jsx): a real
   // render in jsdom, not a snapshot of markup. Vite's transform pipeline is

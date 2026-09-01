@@ -15,6 +15,9 @@
 | `src/ArenaOS.jsx` | the screens (manager syllabus board + teacher attendance portal), with the fixes below applied and each one tagged `[prototype-fix N]` |
 | `src/index.css` | Tailwind v4 entry + the one shim the markup needs |
 | `src/ArenaOS.test.jsx` | behavioural tests for the fixes (jsdom render of the real component) |
+| `src/dist-artifact.test.jsx` | guards the built files in `dist/`, incl. that the bundle actually boots |
+| `tools/make-single-file.mjs` | emits `dist/ArenaOS.html`: no npm, no network, no Babel in the browser |
+| `serve.py` | stdlib static server with no-cache headers, for Termux/`python` |
 | `vite.config.js` | dev server on `0.0.0.0:5173`, `allowedHosts: true`, deliberately **no** `/api` proxy |
 
 ## Why this folder exists instead of `web/`
@@ -35,7 +38,9 @@ cd prototype/arenaos
 npm install
 npm run dev     # http://localhost:5173
 npm test        # vitest, 10 behavioural checks
-npm run build   # self-contained dist/
+npm run build   # Vite dist/ + the self-contained ArenaOS.html (see tools/make-single-file.mjs)
+npm test        # 14 checks: 10 source-level + 4 dist-artefact guards
+npm run serve   # python3 serve.py 8090 from the folder, or `npm run serve:dist` for dist/
 ```
 
 Mock logins (client-side string comparison only):
@@ -82,6 +87,20 @@ language. Only behaviour that was broken or self-contradictory was repaired.
 10. **Logout resets the role tab and closes the CRUD form.** Previously a manager who
     signed out and then tried a teacher account stayed on the *Manager* tab and was
     told "Invalid Manager Credentials" for valid staff IDs.
+
+## Running it on a phone (Termux)
+
+See [TERMUX.md](TERMUX.md). Short version: `npm run build` anywhere with node,
+copy `prototype/arenaos/dist/` to the device, then
+`python -m http.server 8090` inside that folder and open
+`http://127.0.0.1:8090/ArenaOS.html` — that file needs no npm and no network,
+because React/ReactDOM are vendored byte-for-byte from `node_modules` and the
+Tailwind stylesheet is the one `vite build` emitted.
+
+`ArenaOS.html` deliberately loads the two React UMD files by `src=""` instead of
+pasting them inline: `react-dom.production.min.js` embeds `<script>` plus a
+closing tag inside one of its own string literals, and any inline scheme that
+ignores that either truncates the page or corrupts the bundle.
 
 ## Still mock by design (do not promote as-is)
 
