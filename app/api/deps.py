@@ -37,6 +37,8 @@ AUTH_USER_FIELDS = (
     User.first_name,
     User.last_name,
     User.is_active,
+    User.is_department_head,
+    User.staff_identifier,
 )
 
 _bearer = HTTPBearer(auto_error=False)

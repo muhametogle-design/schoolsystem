@@ -20,6 +20,7 @@ import Substitutions from './pages/Substitutions';
 import Syllabus from './pages/Syllabus';
 import Biometrics from './pages/Biometrics';
 import Backups from './pages/Backups';
+import TeacherDashboard from './pages/TeacherDashboard';
 import DataSaverToggle from './components/DataSaverToggle';
 import { useDataSaverDetection } from './hooks/useDataSaver';
 
@@ -31,6 +32,14 @@ function SchoolOnly({ children }) {
   const user = useSelector(selectUser);
   if (!user) return <Navigate to="/" replace />;
   if (isStateUser(user)) return <Navigate to="/state" replace />;
+  return children;
+}
+
+/** Teaching staff stay in their restricted portal (refinement 2). */
+function TeacherOnly({ children }) {
+  const user = useSelector(selectUser);
+  if (!user) return <Navigate to="/" replace />;
+  if (user.role !== 'teacher') return <Navigate to="/school" replace />;
   return children;
 }
 
@@ -88,13 +97,15 @@ export default function App() {
     return <div className="boot"><span className="boot__label">Verifying session…</span></div>;
   }
 
-  const landing = isStateUser(user) ? '/state' : '/school';
+  const landing = isStateUser(user) ? '/state' : user.role === 'teacher' ? '/school/portal' : '/school';
   return (
     <Routes>
       <Route path="/" element={user ? <Navigate to={landing} replace /> : <Login />} />
 
       <Route element={<SchoolOnly><Layout portal="school" /></SchoolOnly>}>
-        <Route path="/school" element={<SchoolDashboard />} />
+        {/* Teachers are redirected to their restricted portal dashboard. */}
+        <Route path="/school" element={user?.role === 'teacher' ? <Navigate to="/school/portal" replace /> : <SchoolDashboard />} />
+        <Route path="/school/portal" element={<TeacherOnly><TeacherDashboard /></TeacherOnly>} />
         <Route path="/school/students" element={<Students />} />
         <Route path="/school/students/:neSid" element={<StudentDetails />} />
         <Route path="/school/classes" element={<Classes />} />

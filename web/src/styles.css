@@ -2535,3 +2535,79 @@ html[data-saver='1'] .saver-toggle {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ------------------- Refinements: teacher portal & syllabus admin ------------------- */
+
+.auth-tabs { margin-bottom: 1rem; }
+.tab-row { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border, #d8dee6); }
+.tab {
+  appearance: none; background: none; border: none; cursor: pointer;
+  padding: 0.55rem 0.9rem; font: inherit; font-weight: 600; color: var(--muted, #5b6673);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tab.is-active { color: var(--ink, #16222e); border-bottom-color: var(--accent, #1f6f54); }
+
+/* Teacher dashboard — day timeline */
+.day-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.day-slot {
+  display: flex; align-items: center; gap: 0.9rem; padding: 0.6rem 0.4rem;
+  border-bottom: 1px solid var(--border, #e4e9ef);
+}
+.day-slot:last-child { border-bottom: none; }
+.day-slot.is-active-period { background: var(--accent-soft, #e8f4ee); border-radius: 8px; padding-left: 0.7rem; }
+.day-slot__period { min-width: 5.5rem; font-weight: 700; color: var(--muted, #5b6673); }
+.day-slot.is-active-period .day-slot__period { color: var(--accent, #1f6f54); }
+.day-slot__body { flex: 1; display: flex; flex-direction: column; }
+.day-slot__side { display: flex; align-items: center; gap: 0.5rem; }
+
+.active-period-card { border-left: 4px solid var(--accent, #1f6f54); }
+.active-period-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.55rem 0; border-bottom: 1px dashed var(--border, #e4e9ef);
+}
+.active-period-row:last-child { border-bottom: none; }
+
+/* Quick roster sheet */
+.roster-sheet { position: relative; }
+.roster-sheet__foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 1rem;
+  padding-top: 0.8rem; border-top: 1px solid var(--border, #e4e9ef); margin-top: 0.4rem;
+}
+.mark-row { display: inline-flex; gap: 0.3rem; }
+.mark-btn {
+  appearance: none; cursor: pointer; font: inherit; font-weight: 700;
+  border: 1.5px solid var(--border, #cfd8e0); background: var(--surface, #fff);
+  border-radius: 7px; padding: 0.28rem 0.55rem; line-height: 1.1;
+  display: inline-flex; flex-direction: column; align-items: center; min-width: 2.4rem;
+}
+.mark-btn__label { font-size: 0.62rem; font-weight: 600; color: var(--muted, #5b6673); }
+.mark-btn--present.is-selected { background: #e5f5ec; border-color: #1f7a4d; color: #14663f; }
+.mark-btn--absent.is-selected { background: #fdeaea; border-color: #c0392b; color: #96281b; }
+.mark-btn--late.is-selected { background: #fdf3e0; border-color: #c07f1f; color: #8a5a12; }
+.mark-btn--excused.is-selected { background: #e9eefb; border-color: #3b5bdb; color: #2c429d; }
+
+/* Syllabus topic checklist */
+.topic-list { list-style: none; margin: 0.6rem 0; padding: 0; max-height: 46vh; overflow-y: auto; }
+.topic {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.8rem;
+  padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border, #edf1f5); border-radius: 6px;
+}
+.topic.is-done { background: var(--accent-soft, #f0f8f3); }
+.topic__tick { display: flex; align-items: center; gap: 0.6rem; cursor: pointer; flex: 1; min-width: 0; }
+.topic__code { color: var(--muted, #5b6673); font-size: 0.78rem; min-width: 4.6rem; }
+.topic__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topic.is-done .topic__title { text-decoration: line-through; color: var(--muted, #5b6673); }
+.topic__meta { display: inline-flex; align-items: center; gap: 0.5rem; }
+.topic__actions { display: inline-flex; gap: 0.25rem; }
+
+/* Manager plan editor */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.7rem 1rem; align-items: end; }
+.form-grid__actions { display: flex; }
+.field--tight { max-width: 9rem; }
+.modal--wide { width: min(52rem, 94vw); max-height: 90vh; overflow-y: auto; }
+.modal__foot {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 0.7rem;
+  border-top: 1px solid var(--border, #e4e9ef); padding-top: 0.9rem; margin-top: 0.9rem;
+}
+.modal__foot--danger { justify-content: flex-start; }
+.section-title { margin: 1.2rem 0 0.5rem; font-size: 0.95rem; }

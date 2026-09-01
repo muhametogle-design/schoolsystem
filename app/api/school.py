@@ -27,6 +27,8 @@ from app.models import (
     Student,
     StudentGrade,
     Subject,
+    TeachingAssignment,
+    TimetableSlot,
     User,
 )
 from app.schemas import (
@@ -286,6 +288,19 @@ def get_attendance(
     db: Session = Depends(get_db),
 ):
     date = date or dt.date.today()
+    # Refinement 3: teachers read only registers of classes they actually
+    # teach; managers keep whole-school visibility.
+    if user.role == "teacher":
+        teaches = (
+            db.query(TeachingAssignment.id)
+            .filter_by(school_id=user.school_id, teacher_id=user.id, class_id=class_id)
+            .first()
+        )
+        if not teaches:
+            raise HTTPException(
+                403,
+                "You are not assigned to this class — attendance visibility is restricted to your own teaching assignments",
+            )
     rows = (
         db.query(LiveAttendance)
         .filter_by(school_id=user.school_id, class_id=class_id, date=date)
@@ -300,6 +315,35 @@ def record_attendance(payload: AttendanceBulkRequest, user: User = Depends(erp_w
     klass = db.query(SchoolClass).filter_by(id=payload.class_id, school_id=user.school_id).one_or_none()
     if not klass:
         raise HTTPException(404, "Class not found in this school")
+
+    # Refinement 3 — the marking engine's RBAC wall. Teachers may only write
+    # the specific (subject, period) registers the timetable assigns them;
+    # managers retain whole-school authority.
+    if user.role == "teacher":
+        if payload.subject_id is None or payload.period_number is None:
+            raise HTTPException(
+                403,
+                "Teachers must mark attendance against their assigned subject and period — "
+                "open your teaching day for the quick roster",
+            )
+        owned = (
+            db.query(TimetableSlot.id)
+            .filter_by(
+                school_id=user.school_id,
+                teacher_id=user.id,
+                class_id=payload.class_id,
+                subject_id=payload.subject_id,
+                day_of_week=payload.date.weekday(),
+                period_number=payload.period_number,
+            )
+            .first()
+        )
+        if not owned:
+            raise HTTPException(
+                403,
+                "This register belongs to another teacher's timetable slot — "
+                "you can only mark the subjects and periods assigned to you",
+            )
 
     valid_ids = {
         s.id

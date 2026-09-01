@@ -8,7 +8,7 @@ HttpOnly session cookie returned by `POST /api/auth/login`.
 
 | Method | Path | Access | Result |
 |---|---|---|---|
-| `POST` | `/api/auth/login` | Public | `{ email, password }` → token plus role/school identity; also sets a secure same-origin cookie when applicable |
+| `POST` | `/api/auth/login` | Public | `{ email, password }` **or** `{ staff_identifier, pin }` → token plus role/school identity; also sets a secure same-origin cookie when applicable |
 | `POST` | `/api/auth/logout` | Any signed-in user | Clears the session cookie |
 | `GET` | `/api/auth/me` | Any signed-in user | Current identity and tenant binding |
 
@@ -67,9 +67,26 @@ period availability; unavailable teachers are filtered out entirely.
 | `POST` | `/api/v1/school/syllabus/plans` | Manager | Create a pacing plan (units, midterm/final gates, term window) |
 | `PUT` | `/api/v1/school/syllabus/plans/{id}/benchmarks` | Manager | Adjust midterm/final benchmark gates |
 | `POST` | `/api/v1/school/syllabus/plans/{id}/progress` | Manager / Teacher | Record an audited progress checkpoint (cumulative units) |
+| `PUT` | `/api/v1/school/syllabus/plans/{id}` | Manager | Edit plan — term, unit total, target percentages, term start/midterm/term-end deadlines |
+| `DELETE` | `/api/v1/school/syllabus/plans/{id}` | Manager | Delete plan with its topics and checkpoint history |
+| `DELETE` | `/api/v1/school/syllabus/plans/{id}/progress/{entry_id}` | Manager | Override stats: remove an erroneous checkpoint and re-derive progress |
+| `GET` | `/api/v1/school/syllabus/plans/{id}/topics` | Any school user | Ordered national-curriculum topic list (`code`, `title`, `is_done`, …) |
+| `POST` | `/api/v1/school/syllabus/plans/{id}/topics` | Manager / Dept Head | Append a curriculum topic (position auto-assigned) |
+| `PUT` | `/api/v1/school/syllabus/plans/{id}/topics/{topic_id}` | Manager / Dept Head | Rename / re-code a topic |
+| `DELETE` | `/api/v1/school/syllabus/plans/{id}/topics/{topic_id}` | Manager / Dept Head | Remove a topic |
+| `POST` | `/api/v1/school/syllabus/plans/{id}/topics/log-covered` | Manager / Dept Head | **Log Topic Covered** — tick topic ids, write audited checkpoint, return refreshed plan+topics |
+| `POST` | `/api/v1/school/syllabus/plans/{id}/topics/undo-covered` | Manager / Dept Head | Un-tick topic ids and re-derive the latest checkpoint |
 
 Expected completion is interpolated between term start (0%), the midterm gate,
 and the final gate; status is derived from the gap (±5 percentage points).
+
+### Teacher Portal & Subject-Restricted Attendance (`Refinements 2–3`)
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/school/teachers/me/schedule?date=` | Teacher | Own slots for the date: period label, class, subject, roster/marked counts, active-period detection (8 periods, 08:00–16:50), pending-register total |
+| `GET` | `/api/v1/school/teachers/me/roster?date=&class_id=&subject_id=&period_number=` | Teacher | Quick-roster payload (students + current marks) for an **own** timetable slot; `403` for any other teacher's slot |
+| `POST` | `/api/v1/school/teachers/me/roster` | Teacher | Upsert `subject_attendance` marks (Present/Absent/Late/Excused) for an own slot; unique per student+date+subject+period |
 
 ### Encrypted Backups (`Module 4`, State Admin only)
 

@@ -20,6 +20,9 @@ const SCHOOL_NAV = [
   { to: '/school/billing', label: 'Billing', managerOnly: true },
 ];
 
+/** Refinement 2 — teaching staff get a deliberately short nav. */
+const TEACHER_NAV = [{ to: '/school/portal', label: 'My teaching day', end: true }];
+
 const STATE_NAV = [
   { to: '/state', label: 'Live monitor', end: true },
   { to: '/state/directory', label: 'School directory' },
@@ -36,7 +39,7 @@ export default function Layout({ portal }) {
   const saverActive = useSelector(selectSaverActive);
   const saverReason = useSelector(selectSaverReason);
   const isState = portal === 'state';
-  const nav = (isState ? STATE_NAV : SCHOOL_NAV).filter(
+  const nav = (isState ? STATE_NAV : user?.role === 'teacher' ? TEACHER_NAV : SCHOOL_NAV).filter(
     (item) =>
       (!item.managerOnly || user?.role === 'school_manager') &&
       (!item.stateAdminOnly || user?.role === 'state_admin')

@@ -8,6 +8,7 @@ import absenceReducer from '../features/absences/absenceSlice';
 import syllabusReducer from '../features/syllabus/syllabusSlice';
 import biometricsReducer from '../features/biometrics/biometricsSlice';
 import backupsReducer from '../features/backups/backupsSlice';
+import teacherPortalReducer from '../features/teacherPortal/teacherPortalSlice';
 
 export const store = configureStore({
   reducer: {
@@ -20,5 +21,6 @@ export const store = configureStore({
     syllabus: syllabusReducer,
     biometrics: biometricsReducer,
     backups: backupsReducer,
+    teacherPortal: teacherPortalReducer,
   },
 });

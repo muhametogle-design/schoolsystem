@@ -4,6 +4,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-09-01
+
+### Added — Manager syllabus administration & subject-restricted teacher portals
+
+- **Editable Syllabus Tracker (School Manager)**: full plan CRUD — edit unit
+  totals, midterm/final target percentages, term start/midterm/term-end
+  deadlines; delete plans (cascades to topics and history); per-topic CRUD on
+  the national-curriculum list (`syllabus_topics`); **Log Topic Covered**
+  checklist for Managers and Department Heads that ticks exact units and
+  writes the audited checkpoint; un-tick (undo) re-derives the checkpoint;
+  managers can delete erroneous progress entries to override stats.
+- **Teacher Authentication & RBAC**: dual-credential login —
+  `{email,password}` **or** `{staff_identifier,pin}` (Argon2-hashed
+  `staff_pin_hash`, uniform `401` on any failure). Teachers land on the
+  restricted **My teaching day** dashboard (`/school/portal`); the sidebar for
+  teachers exposes only that page. `is_department_head` flag shipped on user
+  payloads.
+- **Subject-Restricted Attendance Marking Engine**: `/teachers/me/schedule`
+  returns the signed-in teacher's own slots for a date with active-period
+  detection (08:00–16:50, eight periods) and pending-register counts;
+  `/teachers/me/roster` GET/POST upserts `subject_attendance`
+  (unique student+date+subject+period; Present/Absent/Late/Excused) but only
+  when the timetable slot binds the same teacher+class+subject+period —
+  otherwise `403`. Legacy attendance endpoints gained matching guards for
+  teaching staff.
+
+### Changed
+
+- `POST /api/auth/login` accepts both credential styles; `/api/auth/me` and
+  login payloads now include `is_department_head` and `staff_identifier`.
+- Login screen offers an *Email & password* / *Staff ID & PIN* tab pair.
+
 ## [2.0.0] — 2026-08-31
 
 ### Added — Production modules

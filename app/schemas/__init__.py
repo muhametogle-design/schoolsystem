@@ -9,8 +9,18 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 # --- Auth ---
 class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+    """Two accepted credential styles (refinement 2):
+
+    * email + password — the classic flow for every role;
+    * staff_identifier + pin — the dedicated teacher/staff login.
+
+    ``password`` is optional only when the Staff-ID + PIN path is used.
+    """
+
+    email: EmailStr | None = None
+    password: str | None = None
+    staff_identifier: str | None = Field(default=None, min_length=3, max_length=30)
+    pin: str | None = Field(default=None, min_length=4, max_length=12)
 
 
 class UserInfo(BaseModel):
@@ -21,6 +31,9 @@ class UserInfo(BaseModel):
     first_name: str | None = None
     last_name: str | None = None
     school_name: str | None = None
+    # Refinement 1: teaching staff with syllabus topic authority.
+    is_department_head: bool = False
+    staff_identifier: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -205,6 +218,10 @@ class AttendanceBulkRequest(BaseModel):
     date: dt.date
     class_id: int
     entries: list[AttendanceEntry]
+    # Refinement 3: teachers must address their own (subject, period) slot;
+    # optional for managers, who keep whole-class authority.
+    subject_id: int | None = None
+    period_number: int | None = Field(default=None, ge=1, le=8)
 
 
 class AttendanceSubmitRequest(BaseModel):
@@ -331,6 +348,52 @@ class SyllabusProgressCreate(BaseModel):
     entry_date: dt.date | None = None  # defaults to today
     units_after: int = Field(ge=0, le=500)
     note: str | None = Field(default=None, max_length=300)
+
+
+class SyllabusPlanUpdate(BaseModel):
+    """Full manager edit of a pacing plan (all fields optional)."""
+
+    term: str | None = Field(default=None, max_length=50)
+    total_units: int | None = Field(default=None, gt=0, le=500)
+    midterm_target_pct: float | None = Field(default=None, ge=0, le=100)
+    final_target_pct: float | None = Field(default=None, ge=0, le=100)
+    term_start: dt.date | None = None
+    midterm_date: dt.date | None = None
+    term_end: dt.date | None = None
+
+
+class SyllabusTopicCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=255)
+    code: str | None = Field(default=None, max_length=30)
+    position: int | None = Field(default=None, ge=1, le=999)
+
+
+class SyllabusTopicUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=255)
+    code: str | None = Field(default=None, max_length=30)
+    position: int | None = Field(default=None, ge=1, le=999)
+
+
+class SyllabusLogCoveredRequest(BaseModel):
+    """'Log Topic Covered' modal payload: the ticked topic IDs."""
+
+    topic_ids: list[int] = Field(min_length=1)
+    entry_date: dt.date | None = None
+
+
+class SyllabusUndoCoveredRequest(BaseModel):
+    topic_ids: list[int] = Field(min_length=1)
+
+
+# --- Refinement 3: subject-restricted roster marking ---
+
+
+class TeacherRosterSave(BaseModel):
+    class_id: int
+    subject_id: int
+    period_number: int = Field(ge=1, le=8)
+    date: dt.date | None = None
+    entries: list[AttendanceEntry]
 
 
 # ===========================================================================

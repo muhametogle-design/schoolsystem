@@ -204,6 +204,7 @@ class SyllabusPlan(Base):
     entries = relationship(
         "SyllabusProgressEntry", back_populates="plan", cascade="all, delete-orphan"
     )
+    topics = relationship("SyllabusTopic", back_populates="plan", cascade="all, delete-orphan")
 
 
 class SyllabusProgressEntry(Base):
@@ -230,6 +231,33 @@ class SyllabusProgressEntry(Base):
     created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
 
     plan = relationship("SyllabusPlan", back_populates="entries")
+
+
+class SyllabusTopic(Base):
+    """One national-curriculum unit inside a syllabus plan.
+
+    Topics are what the "Log Topic Covered" modal ticks off. The order of the
+    tick log feeds the audited progress checkpoints, keeping the percentage
+    and the ticked units always reconcilable.
+    """
+
+    __tablename__ = "syllabus_topics"
+    __table_args__ = (
+        Index("idx_syllabus_topics_plan", "plan_id", "position"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("syllabus_plans.id", ondelete="CASCADE"), nullable=False)
+    school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    code: Mapped[str | None] = mapped_column(String(30))
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_done: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    done_date: Mapped[dt.date | None] = mapped_column(Date)
+    done_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
+
+    plan = relationship("SyllabusPlan", back_populates="topics")
 
 
 # ---------------------------------------------------------------------------
@@ -393,3 +421,46 @@ class BiometricVerificationLog(Base):
     detail: Mapped[str | None] = mapped_column(Text)
     verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
     operated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+# ---------------------------------------------------------------------------
+# Refinement 3 — subject-restricted attendance marking engine
+# ---------------------------------------------------------------------------
+
+SUBJECT_ATTENDANCE_STATUSES = ("Present", "Absent", "Late", "Excused")
+
+
+class SubjectAttendance(Base):
+    """Attendance for one student in ONE subject period.
+
+    The daily class roster (``live_attendance``) stays the compliance source
+    of truth; this table records the finer subject-period marking that the
+    subject-restricted engine writes. Uniqueness is per student + date +
+    subject + period, so re-marking the same period updates in place.
+    """
+
+    __tablename__ = "subject_attendance"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN (%s)" % ", ".join(f"'{s}'" for s in SUBJECT_ATTENDANCE_STATUSES),
+            name="chk_subject_attendance_status",
+        ),
+        UniqueConstraint(
+            "student_id", "date", "subject_id", "period_number", name="uq_subject_attendance_slot"
+        ),
+        Index("idx_subject_attendance_slot", "school_id", "date", "subject_id", "period_number"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("private_schools.id", ondelete="CASCADE"), nullable=False)
+    class_id: Mapped[int] = mapped_column(ForeignKey("school_classes.id", ondelete="CASCADE"), nullable=False)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    period_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    recorded_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

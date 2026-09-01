@@ -95,7 +95,9 @@ Module 1  Absence logged → engine projects the absent teacher's timetable
 Module 2  Per class+subject pacing plans: expected % interpolated between
           term start (0%) → midterm gate → final gate; audited checkpoints;
           status tags: Ahead (>= +5 pts), Behind Schedule (< -5 pts), else
-          On Track.
+          On Track. Refinement: managers edit plans/topics/targets/deadlines,
+          managers & department heads tick exact curriculum units via
+          Log Topic Covered (syllabus_topics → checkpoint auto-write).
 
 Module 3  Data Saver toggle (off/auto/on; auto follows Network Information
           API). html[data-saver='1'] CSS strips animations/gradients/shadows
@@ -113,6 +115,20 @@ Module 5  WebAuthn ceremonies implemented in-process (CBOR decoder, COSE
           Enrollment (fingerprint/smartcard/platform), verification station
           (exam_hall_entry / staff_attendance registers with timestamps),
           hardware re-scan (revoke + re-enroll).
+```
+
+## Teacher portal boundary (refinements 2–3)
+
+```text
+Login → {email,password} OR {staff_identifier, pin → Argon2} → JWT
+  teacher role → /school/portal "My teaching day"
+     GET  /teachers/me/schedule   own TimetableSlots for the date,
+                                  active-period detection (08:00–16:50)
+     GET/POST /teachers/me/roster _owned_slot wall: the slot must bind the
+                                  same teacher+class+subject+period, else 403
+  manager role → full ERP (unchanged)
+Legacy attendance routes gained the same wall for teaching staff; the daily
+live_attendance compliance record remains the source of truth.
 ```
 
 ## Technologies

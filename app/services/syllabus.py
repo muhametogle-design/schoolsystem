@@ -23,6 +23,7 @@ from app.models import (
     Subject,
     SyllabusPlan,
     SyllabusProgressEntry,
+    SyllabusTopic,
 )
 
 AHEAD_MARGIN_PCT = 5.0
@@ -214,3 +215,140 @@ def count_plans(db: Session, school_id: int) -> int:
             select(func.count(SyllabusPlan.id)).where(SyllabusPlan.school_id == school_id)
         ).scalar_one()
     )
+
+
+# ---------------------------------------------------------------------------
+# Refinement 1 — topic lists & "Log Topic Covered"
+# ---------------------------------------------------------------------------
+
+
+def list_topics(db: Session, plan: SyllabusPlan) -> list[SyllabusTopic]:
+    return list(
+        db.execute(
+            select(SyllabusTopic)
+            .where(SyllabusTopic.plan_id == plan.id)
+            .order_by(SyllabusTopic.position, SyllabusTopic.id)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def topic_payload(topic: SyllabusTopic) -> dict:
+    return {
+        "id": int(topic.id),
+        "plan_id": int(topic.plan_id),
+        "position": int(topic.position),
+        "code": topic.code,
+        "title": topic.title,
+        "is_done": bool(topic.is_done),
+        "done_date": topic.done_date.isoformat() if topic.done_date else None,
+        "done_by": int(topic.done_by) if topic.done_by else None,
+    }
+
+
+def create_topic(
+    db: Session,
+    plan: SyllabusPlan,
+    *,
+    title: str,
+    code: str | None = None,
+    position: int | None = None,
+) -> SyllabusTopic:
+    existing = list_topics(db, plan)
+    if position is None:
+        position = (existing[-1].position + 1) if existing else 1
+    topic = SyllabusTopic(
+        plan_id=plan.id,
+        school_id=plan.school_id,
+        position=int(position),
+        code=code,
+        title=title.strip(),
+    )
+    db.add(topic)
+    db.flush()
+    return topic
+
+
+def done_topic_count(db: Session, plan_id: int) -> int:
+    return int(
+        db.execute(
+            select(func.count(SyllabusTopic.id)).where(
+                SyllabusTopic.plan_id == plan_id, SyllabusTopic.is_done.is_(True)
+            )
+        ).scalar_one()
+    )
+
+
+def log_topics_covered(
+    db: Session,
+    plan: SyllabusPlan,
+    *,
+    topic_ids: list[int],
+    actor_id: int | None,
+    entry_date: dt.date | None = None,
+) -> dict:
+    """Tick the requested topics and derive an audited progress checkpoint.
+
+    The checkpoint's ``units_after`` equals the number of topics now marked
+    done, so the tracker percentage stays reconcilable with the tick list.
+    Ticking topics beyond ``total_units`` scope is impossible: the count is
+    clamped when the checkpoint is written.
+    """
+    topics = {int(t.id): t for t in list_topics(db, plan)}
+    requested = [tid for tid in topic_ids if tid in topics]
+    if not requested:
+        return {"ticked": 0, "plan": plan_progress_payload(db, plan)}
+
+    today = entry_date or dt.date.today()
+    for tid in requested:
+        topic = topics[tid]
+        if not topic.is_done:
+            topic.is_done = True
+            topic.done_date = today
+            topic.done_by = actor_id
+    # Sessions run with autoflush disabled — push the tick updates down before
+    # the count query, or the derived checkpoint lags one tick behind.
+    db.flush()
+
+    units_after = min(done_topic_count(db, int(plan.id)), int(plan.total_units))
+    entry = record_progress(
+        db,
+        plan,
+        entry_date=today,
+        units_after=units_after,
+        recorded_by=actor_id,
+        note=f"Topics covered: {len(requested)} unit(s) ticked",
+    )
+    return {"ticked": len(requested), "entry_id": int(entry.id), "plan": plan_progress_payload(db, plan)}
+
+
+def undo_topics_covered(
+    db: Session,
+    plan: SyllabusPlan,
+    *,
+    topic_ids: list[int],
+    actor_id: int | None,
+) -> dict:
+    """Untick topics (manager correction) without rewriting history."""
+    topics = {int(t.id): t for t in list_topics(db, plan)}
+    changed = 0
+    for tid in topic_ids:
+        topic = topics.get(int(tid))
+        if topic and topic.is_done:
+            topic.is_done = False
+            topic.done_date = None
+            topic.done_by = None
+            changed += 1
+    if changed:
+        db.flush()  # see log_topics_covered: autoflush is disabled
+        units_after = min(done_topic_count(db, int(plan.id)), int(plan.total_units))
+        record_progress(
+            db,
+            plan,
+            entry_date=dt.date.today(),
+            units_after=units_after,
+            recorded_by=actor_id,
+            note=f"Topics corrected: {changed} unit(s) un-ticked",
+        )
+    return {"unticked": changed, "plan": plan_progress_payload(db, plan)}

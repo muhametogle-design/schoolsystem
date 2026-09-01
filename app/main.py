@@ -35,6 +35,7 @@ from app.api import (
     students,
     absences,
     syllabus,
+    teachers,
     ws,
 )
 from app.core.config import settings
@@ -163,6 +164,7 @@ app.include_router(billing.router)
 # Production modules: substitution engine, syllabus tracker, backups, biometrics.
 app.include_router(absences.router)
 app.include_router(syllabus.router)
+app.include_router(teachers.router)
 app.include_router(backups.router)
 app.include_router(biometrics.router)
 app.include_router(ws.router)

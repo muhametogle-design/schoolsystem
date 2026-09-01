@@ -22,14 +22,29 @@ from app.models import (
     Subject,
     SyllabusPlan,
     SyllabusProgressEntry,
+    SyllabusTopic,
     User,
 )
-from app.schemas import SyllabusBenchmarkUpdate, SyllabusPlanCreate, SyllabusProgressCreate
+from app.schemas import (
+    SyllabusBenchmarkUpdate,
+    SyllabusLogCoveredRequest,
+    SyllabusPlanCreate,
+    SyllabusPlanUpdate,
+    SyllabusProgressCreate,
+    SyllabusTopicCreate,
+    SyllabusTopicUpdate,
+    SyllabusUndoCoveredRequest,
+)
 from app.services.syllabus import (
+    create_topic,
     default_term_window,
+    list_topics,
+    log_topics_covered,
     plan_progress_payload,
     record_progress,
     syllabus_summary,
+    topic_payload,
+    undo_topics_covered,
 )
 
 router = APIRouter(prefix="/api/v1/school/syllabus", tags=["syllabus-tracker"])
@@ -48,6 +63,19 @@ def _load_plan(db: Session, school_id: int, plan_id: int) -> SyllabusPlan:
     if not plan:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Syllabus plan not found")
     return plan
+
+
+def _is_department_head(user: User) -> bool:
+    """Managers hold full authority; department heads are flagged teachers."""
+    return user.role == "school_manager" or bool(user.is_department_head)
+
+
+def _require_topic_authority(user: User) -> None:
+    if not _is_department_head(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Topic administration requires the School Manager or a Department Head",
+        )
 
 
 @router.get("/summary")
@@ -204,3 +232,189 @@ def add_progress(
         },
     )
     return {"entry_id": int(entry.id), "plan": result}
+
+
+@router.put("/plans/{plan_id}")
+def update_plan(
+    plan_id: int,
+    payload: SyllabusPlanUpdate,
+    user: User = Depends(manager_only),
+    db: Session = Depends(get_db),
+):
+    """Full manager edit: units, targets, term label and deadlines."""
+    plan = _load_plan(db, user.school_id, plan_id)
+    if payload.term is not None:
+        plan.term = payload.term
+    if payload.total_units is not None:
+        plan.total_units = payload.total_units
+    if payload.midterm_target_pct is not None:
+        plan.midterm_target_pct = payload.midterm_target_pct
+    if payload.final_target_pct is not None:
+        plan.final_target_pct = payload.final_target_pct
+    if payload.term_start is not None:
+        plan.term_start = payload.term_start
+    if payload.midterm_date is not None:
+        plan.midterm_date = payload.midterm_date
+    if payload.term_end is not None:
+        plan.term_end = payload.term_end
+    db.commit()
+    websocket_manager.broadcast_sync(
+        "syllabus_plan_updated",
+        {"school_id": user.school_id, "plan_id": int(plan.id)},
+    )
+    return {"plan": plan_progress_payload(db, plan)}
+
+
+@router.delete("/plans/{plan_id}")
+def delete_plan(
+    plan_id: int,
+    user: User = Depends(manager_only),
+    db: Session = Depends(get_db),
+):
+    """Manager CRUD: remove a plan with its topics and checkpoint history."""
+    plan = _load_plan(db, user.school_id, plan_id)
+    db.delete(plan)
+    db.commit()
+    websocket_manager.broadcast_sync(
+        "syllabus_plan_deleted",
+        {"school_id": user.school_id, "plan_id": plan_id},
+    )
+    return {"deleted": plan_id}
+
+
+@router.get("/plans/{plan_id}/topics")
+def get_topics(
+    plan_id: int,
+    user: User = Depends(any_school_user),
+    db: Session = Depends(get_db),
+):
+    plan = _load_plan(db, user.school_id, plan_id)
+    return {"topics": [topic_payload(t) for t in list_topics(db, plan)]}
+
+
+@router.post("/plans/{plan_id}/topics", status_code=status.HTTP_201_CREATED)
+def add_topic(
+    plan_id: int,
+    payload: SyllabusTopicCreate,
+    user: User = Depends(erp_write),
+    db: Session = Depends(get_db),
+):
+    _require_topic_authority(user)
+    plan = _load_plan(db, user.school_id, plan_id)
+    topic = create_topic(
+        db, plan, title=payload.title, code=payload.code, position=payload.position
+    )
+    db.commit()
+    return {"topic": topic_payload(topic)}
+
+
+@router.put("/plans/{plan_id}/topics/{topic_id}")
+def update_topic(
+    plan_id: int,
+    topic_id: int,
+    payload: SyllabusTopicUpdate,
+    user: User = Depends(erp_write),
+    db: Session = Depends(get_db),
+):
+    _require_topic_authority(user)
+    plan = _load_plan(db, user.school_id, plan_id)
+    topic = db.execute(
+        select(SyllabusTopic).where(
+            SyllabusTopic.id == topic_id, SyllabusTopic.plan_id == plan.id
+        )
+    ).scalar_one_or_none()
+    if not topic:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found on this plan")
+    if payload.title is not None:
+        topic.title = payload.title.strip()
+    if payload.code is not None:
+        topic.code = payload.code
+    if payload.position is not None:
+        topic.position = payload.position
+    db.commit()
+    return {"topic": topic_payload(topic)}
+
+
+@router.delete("/plans/{plan_id}/topics/{topic_id}")
+def delete_topic(
+    plan_id: int,
+    topic_id: int,
+    user: User = Depends(erp_write),
+    db: Session = Depends(get_db),
+):
+    _require_topic_authority(user)
+    plan = _load_plan(db, user.school_id, plan_id)
+    topic = db.execute(
+        select(SyllabusTopic).where(
+            SyllabusTopic.id == topic_id, SyllabusTopic.plan_id == plan.id
+        )
+    ).scalar_one_or_none()
+    if not topic:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found on this plan")
+    db.delete(topic)
+    db.commit()
+    return {"deleted": topic_id}
+
+
+@router.post("/plans/{plan_id}/topics/log-covered")
+def log_covered(
+    plan_id: int,
+    payload: SyllabusLogCoveredRequest,
+    user: User = Depends(erp_write),
+    db: Session = Depends(get_db),
+):
+    """'Log Topic Covered': tick curriculum units and checkpoint progress."""
+    _require_topic_authority(user)
+    plan = _load_plan(db, user.school_id, plan_id)
+    result = log_topics_covered(
+        db, plan, topic_ids=payload.topic_ids, actor_id=user.id, entry_date=payload.entry_date
+    )
+    db.commit()
+    result["topics"] = [topic_payload(t) for t in list_topics(db, plan)]
+    websocket_manager.broadcast_sync(
+        "syllabus_progress",
+        {
+            "school_id": user.school_id,
+            "plan_id": int(plan.id),
+            "completion_pct": result["plan"]["completion_pct"],
+            "status": result["plan"]["status"],
+        },
+    )
+    return result
+
+
+@router.post("/plans/{plan_id}/topics/undo-covered")
+def undo_covered(
+    plan_id: int,
+    payload: SyllabusUndoCoveredRequest,
+    user: User = Depends(erp_write),
+    db: Session = Depends(get_db),
+):
+    """Manager correction: un-tick units and re-derive the checkpoint."""
+    _require_topic_authority(user)
+    plan = _load_plan(db, user.school_id, plan_id)
+    result = undo_topics_covered(db, plan, topic_ids=payload.topic_ids, actor_id=user.id)
+    db.commit()
+    result["topics"] = [topic_payload(t) for t in list_topics(db, plan)]
+    return result
+
+
+@router.delete("/plans/{plan_id}/progress/{entry_id}")
+def delete_progress_entry(
+    plan_id: int,
+    entry_id: int,
+    user: User = Depends(manager_only),
+    db: Session = Depends(get_db),
+):
+    """Manager override: remove an erroneous checkpoint from the history."""
+    plan = _load_plan(db, user.school_id, plan_id)
+    entry = db.execute(
+        select(SyllabusProgressEntry).where(
+            SyllabusProgressEntry.id == entry_id, SyllabusProgressEntry.plan_id == plan.id
+        )
+    ).scalar_one_or_none()
+    if not entry:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Progress entry not found")
+    db.delete(entry)
+    db.commit()
+    return {"deleted": entry_id, "plan": plan_progress_payload(db, plan)}

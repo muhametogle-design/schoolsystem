@@ -22,11 +22,21 @@ tier and automated tests.
 | `substitution_assignments` | Confirmed covers with frozen engine score/reason |
 | `syllabus_plans` | Class+subject pacing contract with midterm/final benchmark gates |
 | `syllabus_progress_entries` | Audited cumulative-unit checkpoints |
+| `syllabus_topics` | Per-plan national-curriculum unit checklist (see Refinements) |
 | `data_change_log` | Row-level change feed written by triggers (JSON payload per row) |
 | `backup_records` | Artefact metadata: kind, size, SHA-256, MD5, encryption, status |
 | `backup_audit_events` | Admin audit trail (created/verified/downloaded/purged) |
 | `biometric_credentials` | WebAuthn credentials (COSE public key, sign counter, method) |
 | `biometric_verification_logs` | Timestamped exam-hall-entry / staff-attendance register |
+
+### Refinements (sql/005_module_refinements.sql)
+
+| Table / column | Purpose |
+|---|---|
+| `users.staff_pin_hash` | Argon2 hash for Staff ID + PIN login (demo PIN `2026`) |
+| `users.is_department_head` | Grants curriculum topic-log authority alongside the manager |
+| `syllabus_topics` | Ordered national-curriculum list per plan (position, code, title, `is_done`, done date/by) |
+| `subject_attendance` | Per-subject-period register; unique (student, date, subject, period); Present/Absent/Late/Excused |
 
 ```text
 private_schools (unique two-letter school_code)
@@ -40,6 +50,7 @@ private_schools (unique two-letter school_code)
   ├── subjects (mandatory catalog per class level)
   ├── student_grades ← exam_submission_events (append-only release ledger)
   ├── live_attendance → daily_submission_logs (deadline/alarm state)
+  │     └── subject_attendance (per subject-period register)
   ├── communication_logs (notification outbox)
   └── tenant-private finance
         ├── tuition_rates

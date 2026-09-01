@@ -29,6 +29,7 @@ from app.models import (
     Subject,
     SyllabusPlan,
     SyllabusProgressEntry,
+    SyllabusTopic,
     TeacherAbsence,
     TeachingAssignment,
     TimetableSlot,
@@ -104,6 +105,7 @@ def seed_operations(session: Session) -> None:
 
         specialists = _ensure_specialists(session, school)
         _rebalance_assignments(session, school, specialists)
+        _seed_staff_credentials(session, school, specialists)
         _seed_timetable(session, school, classes)
         _seed_syllabus(session, school, classes, today)
 
@@ -208,7 +210,9 @@ def _rebalance_assignments(session: Session, school: PrivateSchool, pool: dict[s
         load[assignment.teacher_id] = load.get(assignment.teacher_id, 0) + 1
 
     for assignment, subject in rows:
-        candidates = pool.get(subject.subject_code, [])
+        # Subject codes carry a level suffix in the catalogue ("MAT-08");
+        # pools are keyed by the base department code ("MAT").
+        candidates = pool.get(subject.subject_code.split("-")[0], [])
         if not candidates:
             continue
         choice = min(candidates, key=lambda user: (load.get(user.id, 0), user.id))
@@ -216,6 +220,42 @@ def _rebalance_assignments(session: Session, school: PrivateSchool, pool: dict[s
             load[assignment.teacher_id] = load.get(assignment.teacher_id, 0) - 1
             assignment.teacher_id = choice.id
             load[choice.id] = load.get(choice.id, 0) + 1
+    session.flush()
+
+
+# ---------------------------------------------------------------------------
+# Staff credentials (refinement 2) — Staff ID + PIN login
+# ---------------------------------------------------------------------------
+
+#: Demo PIN for every seeded staff account (change before real use).
+DEMO_STAFF_PIN = "2026"
+#: Each school's Mathematics lead becomes the seeded department head.
+DEPARTMENT_HEAD_CODE = "MAT"
+
+
+def _seed_staff_credentials(session: Session, school: PrivateSchool, pool: dict[str, list[User]]) -> None:
+    """Give every staff account a PIN and flag one department head per school.
+
+    The PIN is hashed with the platform's Argon2 helper, mirroring
+    ``password_hash``; login accepts either credential style.
+    """
+    from app.core.security import hash_password
+
+    staff = session.execute(
+        select(User).where(User.school_id == school.id, User.role.in_(("teacher", "school_manager")))
+    ).scalars().all()
+    pin_hash = hash_password(DEMO_STAFF_PIN)
+    for person in staff:
+        if not person.staff_pin_hash:
+            person.staff_pin_hash = pin_hash
+
+    heads = pool.get(DEPARTMENT_HEAD_CODE, [])
+    if heads:
+        # Prefer a dedicated subject specialist for the role; the specialist
+        # with the lowest id leads the department deterministically.
+        specialists_only = [u for u in heads if u.designation and u.designation.endswith("Specialist")]
+        head = min(specialists_only or heads, key=lambda u: u.id)
+        head.is_department_head = True
     session.flush()
 
 
@@ -376,6 +416,23 @@ def _seed_syllabus(
                         units_after=units,
                         note=None,
                         recorded_by=assignment.teacher_id,
+                    )
+                )
+
+            # National-curriculum unit list: Unit 1..N with the covered units
+            # ticked so the tracker percentage and the tick list reconcile.
+            for unit_number in range(1, total_units + 1):
+                done = unit_number <= final_units
+                session.add(
+                    SyllabusTopic(
+                        plan_id=plan.id,
+                        school_id=school.id,
+                        position=unit_number,
+                        code=f"U{unit_number:02d}",
+                        title=f"Unit {unit_number}: {subject.subject_name} core unit {unit_number}",
+                        is_done=done,
+                        done_date=today if done else None,
+                        done_by=assignment.teacher_id if done else None,
                     )
                 )
 

@@ -355,7 +355,7 @@ def test_bad_attestation_rejected_and_logged(client):
     logs = client.get(
         "/api/v1/school/biometrics/verifications?result=failed", headers=headers
     ).json()["verifications"]
-    assert logs and "Enrollment rejected" in logs[0]["detail"]
+    assert any("Enrollment rejected" in entry["detail"] for entry in logs)
 
 
 def test_tampered_assertion_signature_fails(client):

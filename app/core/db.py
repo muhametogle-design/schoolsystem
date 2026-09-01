@@ -75,6 +75,8 @@ COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("users", "designation", "VARCHAR(100)"),
     ("users", "bio", "TEXT"),
     ("users", "is_active", "BOOLEAN DEFAULT 1"),
+    ("users", "staff_pin_hash", "VARCHAR(255)"),
+    ("users", "is_department_head", "BOOLEAN DEFAULT 0"),
     ("private_schools", "school_code", "VARCHAR(2)"),
     ("private_schools", "billing_contact_name", "VARCHAR(255)"),
     ("private_schools", "billing_phone", "VARCHAR(50)"),
