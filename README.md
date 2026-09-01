@@ -28,6 +28,38 @@ records out of State Admin and Inspector views.
   assignments.
 - Attendance deadline/red-alarm workflow, published-exam release valve, and
   live academic-structure refresh notifications.
+- **Teacher Absence & Substitution Engine** — logging an absence instantly
+  ranks available colleagues per affected timetable period using department
+  qualifications, subject specialization, and free (unassigned) period slots,
+  with one-click confirm and auto-cover.
+- **Syllabus Completion Tracker (Classes 1-12)** — per class/subject pacing
+  plans with midterm and final exam benchmark gates, audited progress
+  checkpoints, and automatic `On Track` / `Ahead` / `Behind Schedule` flags.
+- **Low-bandwidth Data Saver mode** — a global toggle (off / auto / on) that
+  follows the device's Network Information API; when active it strips
+  animations, gradients and shadows, switches to high-contrast typography,
+  and replaces every graphic chart with raw text metrics.
+- **Automated encrypted midnight backups** — a 00:00 worker produces SQLite
+  snapshots plus trigger-captured JSON deltas, seals both with AES-256-GCM,
+  records SHA-256/MD5 digests, and exposes a State-Admin console with
+  verification, downloads, and a full audit trail.
+- **Biometric hardware management** — WebAuthn enrollment and verification
+  (fingerprint readers, smartcards, platform authenticators) for students and
+  staff, with exam-hall-entry and staff-attendance registers and hardware
+  re-scan/re-enroll support.
+- **Editable syllabus administration** — School Managers (and Department
+  Heads for topic logging) curate the national-curriculum topic list of every
+  plan: add/edit/remove units, adjust unit totals and target completion
+  percentages, move term/midterm deadlines, and override progress history by
+  deleting erroneous checkpoints. The **Log Topic Covered** checklist ticks
+  exact curriculum units and writes an audited checkpoint automatically.
+- **Teacher self-service login** — teaching staff sign in with email +
+  password **or** Staff ID + PIN (Argon2-hashed) and land on a restricted
+  *My teaching day* dashboard; managers keep the full ERP.
+- **Subject-restricted attendance engine** — teachers can only view and mark
+  attendance for class/subject/period slots assigned to them in the timetable
+  matrix; the active period is highlighted with one-tap Present / Absent /
+  Late / Excused rosters. Every foreign-slot attempt is refused server-side.
 
 ## Roles and boundaries
 
@@ -101,7 +133,18 @@ psql "$PG_URL" -v ON_ERROR_STOP=1 -f sql/001_schema.sql
 DATABASE_URL="$APP_DATABASE_URL" .venv/bin/python scripts/seed_data.py
 psql "$PG_URL" -v ON_ERROR_STOP=1 -f sql/002_security_firewall.sql
 psql "$PG_URL" -v ON_ERROR_STOP=1 -f sql/003_analytics_views.sql
+psql "$PG_URL" -v ON_ERROR_STOP=1 -f sql/004_ops_modules.sql
+psql "$PG_URL" -v ON_ERROR_STOP=1 -f sql/005_module_refinements.sql
 ```
+
+`sql/005_module_refinements.sql` adds the Staff-ID/PIN credential columns,
+the per-plan curriculum `syllabus_topics` list and the per-subject-period
+`subject_attendance` register (SQLite deployments auto-migrate on boot).
+`sql/004_ops_modules.sql` creates the operations-module tables (substitution
+engine, syllabus tracker, backups, biometrics) and installs the row-level
+change-capture triggers that feed the JSON delta exports. Set
+`BACKUP_ENCRYPTION_KEY` before production: when it is empty the backup key is
+derived from `JWT_SECRET_KEY`, which is acceptable only for local demos.
 
 `002_security_firewall.sql` uses `FORCE ROW LEVEL SECURITY`; do not run the
 application as a PostgreSQL superuser or a role with `BYPASSRLS`. The API sets
@@ -118,7 +161,9 @@ Docker Compose stack uses the same schema-first flow and its normal seed path.
 | Nugaal Teacher | `teacher@nugaal.edu.so` | `Teach@2026` |
 
 All seeded school managers use `School@2026`; all first seeded teachers use
-`Teach@2026`. Change credentials before real use.
+`Teach@2026`. Teaching staff can additionally sign in with their Staff ID
+(`NE-TID-…`) and the seeded demo PIN **`2026`** on the *Staff ID & PIN* tab.
+Change credentials before real use.
 
 ## Data model highlights
 
