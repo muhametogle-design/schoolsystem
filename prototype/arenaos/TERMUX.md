@@ -60,9 +60,19 @@ terminal. Want it in the background?
 nohup python -m http.server 8090 > /tmp/arena.log 2>&1 &
 ```
 
-The dist/ folder is a build artefact, so a fresh clone does not have it. Build it
-once on any machine with node (`npm run build`) and copy the folder over, or skip
-straight to step 3.
+The dist/ folder is a build artefact (`.gitignore` keeps `dist/` out of git), so a
+fresh clone does not have it. Either build it once — `npm run build` — and copy the
+folder over, or go straight to step 3. `schoolsystem-arenaos-termux.zip` in the
+repo root already contains it.
+
+**No files to copy at all?** `dist/ArenaOS.cdn.html` (2.3 kB) plus
+`dist/ArenaOS.app.js` (28 kB) are both plain text: paste them into two files in one
+folder, then serve that folder as above and open `ArenaOS.cdn.html`. It pulls React
+and Tailwind from unpkg (falling back to jsdelivr), so it needs network — the only
+path that works with nothing but a text editor. Regenerate with
+`node tools/make-single-file.mjs --cdn`. The `ArenaOS.html` self-contained page
+cannot be hand-pasted: it depends on the two vendored React files from
+node_modules.
 
 ## 3. Real workflow — Vite dev server with HMR
 
