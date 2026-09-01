@@ -1,0 +1,28 @@
+/* Tailwind v4 — scans the source files automatically, so every utility class
+   used by ArenaOS.jsx (slate/blue palette, arbitrary text sizes, opacity
+   modifiers) resolves without a tailwind.config.js. */
+@import 'tailwindcss';
+
+/* ArenaOS.jsx references `animate-fadeIn`, which is not a built-in Tailwind
+   class. Defining it here is the only CSS shim the prototype needs. */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 160ms ease-out;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background-color: #020617; /* slate-950 — avoids a white flash before React mounts */
+}
