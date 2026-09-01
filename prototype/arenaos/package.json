@@ -1,0 +1,22 @@
+{
+  "name": "arenaos-prototype",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Standalone mock prototype (ArenaOS) — Tailwind + mock data. NOT wired to the FastAPI backend.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.11",
+    "@vitejs/plugin-react": "^4.3.1",
+    "tailwindcss": "^4.1.11",
+    "vite": "^5.4.8"
+  }
+}
