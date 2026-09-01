@@ -18,16 +18,19 @@ Storage needed: roughly 1.5 GB free (toolchains + Python env + app).
 ```bash
 pkg update -y && pkg upgrade -y
 pkg install -y git python nodejs-lts clang make pkg-config libffi rust
-pkg install -y python-cryptography python-pydantic
+pkg install -y python-cryptography
 ```
 
 - `nodejs-lts` is only needed for **Option B** (building the interface yourself).
 - `rust`/`clang`/`make` let pip compile `pydantic-core` and `argon2` **once**
   (the first install can take 10–30 minutes on a phone; later installs reuse
-  the compiled wheels). The Termux-packaged `python-cryptography` /
-  `python-pydantic` skip most of that when visible to the venv below.
-- If any `pkg install` of a python package fails ("Unable to locate package"),
-  just continue — pip will build it instead; it only takes longer.
+  the compiled wheels). The Termux-packaged `python-cryptography` skips one
+  of those builds when visible to the venv below.
+- There is **no `python-pydantic` Termux package** — pip builds pydantic-core
+  with the rust toolchain above. This is the slowest step; run
+  `termux-wake-lock` and keep the phone charging.
+- apt aborts an entire `pkg install` line when one package name is unknown,
+  so retry remaining packages on their own line if that ever happens.
 
 ## B. Get the code — pick ONE option
 
