@@ -17,4 +17,16 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
   },
+  // Behavioural checks for the prototype fixes (src/ArenaOS.test.jsx): a real
+  // render in jsdom, not a snapshot of markup. Vite's transform pipeline is
+  // reused, so there is no separate test bundler config to keep in sync.
+  test: {
+    environment: 'jsdom',
+    css: false,
+    // globals lets @testing-library/react auto-run its cleanup hook; without it every
+    // render in the file piles up in the same jsdom document and queries find
+    // the previous test's login form.
+    globals: true,
+    setupFiles: ['./src/setup-tests.js'],
+  },
 });

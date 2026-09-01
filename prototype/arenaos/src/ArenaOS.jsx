@@ -71,6 +71,31 @@ const INITIAL_STUDENTS = [
   { id: 'NG-10089', name: 'Hassan Abdi Nur', classGrade: 'Class 11 (Form 3)' }
 ];
 
+// [prototype-fix 3] The attendance register was keyed to a literal '2026-09-01'
+// in two places (the writer and the reader), so the demo silently rotted the day
+// it was authored. One derived key for today keeps both sides in step. The real
+// pages read the date from a picker and pass it to /api/…/roster.
+const SESSION_DATE = new Date().toISOString().slice(0, 10);
+
+// [prototype-fix 9] Every label in the pasted markup floated free of its input
+// (no htmlFor/id pair) and the Subject Name label was missing Tailwind's `block`
+// class the others have — an unnoticed copy/paste divergence. Pairing labels with
+// controls fixes the accessibility gap and lets the behavioural tests drive the
+// form the way a screen reader does.
+const AUTH_FIELD_IDS = { identifier: 'auth-identifier', secret: 'auth-secret' };
+
+// [prototype-fix 6] Four taps, matching web/src/pages/TeacherDashboard.jsx.
+const ATTENDANCE_STATUSES = ['Present', 'Absent', 'Late', 'Excused'];
+
+const statusActiveClass = (st) =>
+  st === 'Present'
+    ? 'bg-emerald-600 text-white'
+    : st === 'Absent'
+    ? 'bg-red-600 text-white'
+    : st === 'Late'
+    ? 'bg-amber-600 text-white'
+    : 'bg-sky-600 text-white';
+
 export default function ArenaOS() {
   // Authentication State
   const [currentUser, setCurrentUser] = useState(null); // null | { role: 'manager' | 'teacher', data: object }
@@ -83,8 +108,11 @@ export default function ArenaOS() {
   const [syllabusList, setSyllabusList] = useState(INITIAL_SYLLABUS);
   const [attendanceRecords, setAttendanceRecords] = useState({}); // { 'SUB-101_2026-09-01': { 'NG-10023': 'Present' } }
 
-  // Modal State for Syllabus Unit Coverage
-  const [activeModalSyllabus, setActiveModalSyllabus] = useState(null);
+  // [prototype-fix 1] The modal used to hold a *copy* of the row
+  // (setActiveModalSyllabus(item)), so every unit toggle re-rendered the card
+  // list behind it while the checklist kept rendering the frozen snapshot and
+  // the boxes snapped back. Storing the id and deriving the live row fixes it.
+  const [activeModalSyllabusId, setActiveModalSyllabus] = useState(null);
 
   // New Subject Form State (Manager CRUD)
   const [showAddSubjectForm, setShowAddSubjectForm] = useState(false);
@@ -96,7 +124,9 @@ export default function ArenaOS() {
     setAuthError('');
 
     if (loginRole === 'manager') {
-      if (loginId === 'admin' && loginPin === 'admin123') {
+      // [prototype-fix 7] Same trim/case-insensitive treatment the teacher branch
+      // already got, so a stray space or "Admin" doesn't look like a bad password.
+      if (loginId.trim().toUpperCase() === 'ADMIN' && loginPin === 'admin123') {
         setCurrentUser({ role: 'manager', data: { name: 'School Manager (Admin)' } });
         return;
       }
@@ -116,6 +146,12 @@ export default function ArenaOS() {
     setLoginId('');
     setLoginPin('');
     setAuthError('');
+    // [prototype-fix 10] The role tab and the open CRUD form survived logout, so
+    // a manager signing out and then trying a teacher account landed on the
+    // *Manager* tab and got "Invalid Manager Credentials" for valid staff IDs.
+    // Reset to the default tab (as the real Login.jsx does) and close the form.
+    setLoginRole('teacher');
+    setShowAddSubjectForm(false);
   };
 
   // Toggle Topic Covered Checkbox (Manager Action)
@@ -136,9 +172,26 @@ export default function ArenaOS() {
     return Math.round((coveredCount / units.length) * 100);
   };
 
-  // Handle Teacher Marking Attendance
+  // [prototype-fix 8] Managers could previously never grow a plan's unit list —
+  // a new subject arrived with one hard-coded "Chapter 1" and no way to add the
+  // rest, which made the 0% progress bar a dead end.
+  const handleAddUnit = (syllabusId) => {
+    setSyllabusList((prev) =>
+      prev.map((item) => {
+        if (item.id !== syllabusId) return item;
+        const nextNumber = item.units.length + 1;
+        return {
+          ...item,
+          units: [...item.units, { id: `U${nextNumber}`, title: `Chapter ${nextNumber}: Untitled Unit`, covered: false }],
+        };
+      })
+    );
+  };
+
+  // [prototype-fix 4] Attendance is now recorded for the same day the roster is
+  // read from, instead of a frozen literal.
   const handleMarkAttendance = (subjectId, studentId, status) => {
-    const key = `${subjectId}_2026-09-01`;
+    const key = `${subjectId}_${SESSION_DATE}`;
     setAttendanceRecords(prev => ({
       ...prev,
       [key]: {
@@ -148,17 +201,60 @@ export default function ArenaOS() {
     }));
   };
 
+  const handleMarkAllPresent = (subjectId, roster) => {
+    const key = `${subjectId}_${SESSION_DATE}`;
+    setAttendanceRecords((prev) => ({
+      ...prev,
+      [key]: { ...(prev[key] || {}), ...Object.fromEntries(roster.map((s) => [s.id, 'Present'])) },
+    }));
+  };
+
+  // [prototype-fix 4] `target` and `deadline` were already in `newSubject` state
+  // but had no inputs, so every created row silently inherited 80 / 2026-11-15.
   // Add New Subject to Syllabus (Manager Action)
   const handleAddSubject = (e) => {
     e.preventDefault();
+    // [prototype-fix 5] Date.now().toString().slice(-3) reused ids constantly
+    // (three rolling digits), which made React keys collide and the modal target
+    // the wrong row. Monotonic suffix over the live list instead.
+    const nextNumber = syllabusList.reduce((max, item) => {
+      const parsed = Number.parseInt(String(item.id).replace(/\D/g, ''), 10);
+      return Number.isNaN(parsed) ? max : Math.max(max, parsed);
+    }, 0);
     const newEntry = {
-      id: `SYL-${Date.now().toString().slice(-3)}`,
       ...newSubject,
-      units: [{ id: 'U1', title: 'Chapter 1: Foundations', covered: false }]
+      id: `SYL-${100 + nextNumber + 1}`,
+      units: [{ id: 'U1', title: 'Chapter 1: Foundations', covered: false }],
     };
     setSyllabusList([...syllabusList, newEntry]);
+    setNewSubject({ classGrade: 'Class 11 (Form 3)', subject: '', teacherId: 'T-402', target: 80, deadline: '2026-11-15' });
     setShowAddSubjectForm(false);
   };
+
+  // [prototype-fix 1] The open modal must read the live row, not a snapshot.
+  const activeSyllabus = activeModalSyllabusId
+    ? syllabusList.find((item) => item.id === activeModalSyllabusId) ?? null
+    : null;
+
+  // [prototype-fix 8] A subject a manager creates must show up on the assigned
+  // teacher's restricted portal, otherwise "CRUD" only ever moved the manager's
+  // own board. The real app persists the assignment row; here we derive the view.
+  const teacherSubjects =
+    currentUser && currentUser.role === 'teacher'
+      ? (() => {
+          const owned = syllabusList.filter((item) => item.teacherId === currentUser.data.id);
+          const seen = new Set(currentUser.data.assignedSubjects.map((s) => `${s.name}|${s.classGrade}`));
+          const extra = owned
+            .filter((item) => !seen.has(`${item.subject}|${item.classGrade}`))
+            .map((item, index) => ({
+              id: item.id,
+              name: item.subject,
+              classGrade: item.classGrade,
+              period: `Unscheduled period ${index + 1}`,
+            }));
+          return [...currentUser.data.assignedSubjects, ...extra];
+        })()
+      : [];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col">
@@ -224,10 +320,11 @@ export default function ArenaOS() {
 
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-xs uppercase font-semibold text-slate-400">
+                <label htmlFor={AUTH_FIELD_IDS.identifier} className="text-xs uppercase font-semibold text-slate-400">
                   {loginRole === 'teacher' ? 'Staff ID' : 'Username'}
                 </label>
                 <input 
+                  id={AUTH_FIELD_IDS.identifier}
                   type="text" 
                   required
                   placeholder={loginRole === 'teacher' ? 'e.g. T-402' : 'admin'}
@@ -238,10 +335,11 @@ export default function ArenaOS() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs uppercase font-semibold text-slate-400">
+                <label htmlFor={AUTH_FIELD_IDS.secret} className="text-xs uppercase font-semibold text-slate-400">
                   {loginRole === 'teacher' ? 'PIN Code' : 'Password'}
                 </label>
                 <input 
+                  id={AUTH_FIELD_IDS.secret}
                   type="password" 
                   required
                   placeholder={loginRole === 'teacher' ? '••••' : '••••••••'}
@@ -291,8 +389,9 @@ export default function ArenaOS() {
               <h3 className="font-bold text-sm text-blue-400 border-b border-slate-800 pb-2">Create New Subject Syllabus Entry</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Class Grade</label>
+                  <label htmlFor="new-subject-class" className="block text-xs text-slate-400 mb-1">Class Grade</label>
                   <select 
+                    id="new-subject-class"
                     value={newSubject.classGrade}
                     onChange={(e) => setNewSubject({ ...newSubject, classGrade: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 p-2 text-xs rounded text-white"
@@ -304,8 +403,9 @@ export default function ArenaOS() {
                 </div>
 
                 <div>
-                  <label className="text-xs text-slate-400 mb-1">Subject Name</label>
+                  <label htmlFor="new-subject-name" className="block text-xs text-slate-400 mb-1">Subject Name</label>
                   <input 
+                    id="new-subject-name"
                     type="text" 
                     required 
                     placeholder="e.g. Chemistry"
@@ -316,13 +416,40 @@ export default function ArenaOS() {
                 </div>
 
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Assigned Teacher ID</label>
+                  <label htmlFor="new-subject-teacher" className="block text-xs text-slate-400 mb-1">Assigned Teacher ID</label>
                   <input 
+                    id="new-subject-teacher"
                     type="text" 
                     required 
                     value={newSubject.teacherId}
                     onChange={(e) => setNewSubject({ ...newSubject, teacherId: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 p-2 text-xs rounded text-white"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="new-subject-target" className="block text-xs text-slate-400 mb-1">Target Benchmark %</label>
+                  <input 
+                    id="new-subject-target"
+                    type="number" 
+                    min="0"
+                    max="100"
+                    required 
+                    value={newSubject.target}
+                    onChange={(e) => setNewSubject({ ...newSubject, target: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
+                    className="w-full bg-slate-950 border border-slate-800 p-2 text-xs rounded text-white"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="new-subject-deadline" className="block text-xs text-slate-400 mb-1">Deadline</label>
+                  <input 
+                    id="new-subject-deadline"
+                    type="date" 
+                    required 
+                    value={newSubject.deadline}
+                    onChange={(e) => setNewSubject({ ...newSubject, deadline: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 p-2 text-xs rounded text-white [color-scheme:dark]"
                   />
                 </div>
               </div>
@@ -355,7 +482,7 @@ export default function ArenaOS() {
                       </div>
 
                       <button 
-                        onClick={() => setActiveModalSyllabus(item)}
+                        onClick={() => setActiveModalSyllabus(item.id)}
                         className="bg-slate-800 hover:bg-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 text-blue-400"
                       >
                         📝 Log Topics
@@ -387,13 +514,17 @@ export default function ArenaOS() {
           </div>
 
           {/* LOG TOPIC COVERED MODAL */}
-          {activeModalSyllabus && (
+          {activeSyllabus && (
             <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
                 <div className="flex justify-between items-start">
                   <div>
-                    <span className="text-xs text-blue-400 font-mono font-bold uppercase">{activeModalSyllabus.classGrade}</span>
-                    <h3 className="text-lg font-bold">{activeModalSyllabus.subject} - Curriculum Units</h3>
+                    <span className="text-xs text-blue-400 font-mono font-bold uppercase">{activeSyllabus.classGrade}</span>
+                    <h3 className="text-lg font-bold">{activeSyllabus.subject} - Curriculum Units</h3>
+                    {/* [prototype-fix 1] Live progress now ticks inside the modal itself. */}
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {calculateProgress(activeSyllabus.units)}% covered · target {activeSyllabus.target}% · {activeSyllabus.units.length} units
+                    </p>
                   </div>
                   <button 
                     onClick={() => setActiveModalSyllabus(null)}
@@ -404,7 +535,7 @@ export default function ArenaOS() {
                 </div>
 
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {activeModalSyllabus.units.map((unit) => (
+                  {activeSyllabus.units.map((unit) => (
                     <label 
                       key={unit.id} 
                       className="flex items-center gap-3 p-3 bg-slate-950 border border-slate-800 rounded-lg cursor-pointer hover:border-slate-700 transition-colors"
@@ -412,7 +543,7 @@ export default function ArenaOS() {
                       <input 
                         type="checkbox"
                         checked={unit.covered}
-                        onChange={() => handleToggleTopic(activeModalSyllabus.id, unit.id)}
+                        onChange={() => handleToggleTopic(activeSyllabus.id, unit.id)}
                         className="w-4 h-4 rounded accent-blue-600"
                       />
                       <span className={`text-xs font-medium ${unit.covered ? 'line-through text-slate-500' : 'text-slate-200'}`}>
@@ -422,7 +553,14 @@ export default function ArenaOS() {
                   ))}
                 </div>
 
-                <div className="border-t border-slate-800 pt-3 flex justify-end">
+                <div className="border-t border-slate-800 pt-3 flex items-center justify-between gap-2">
+                  {/* [prototype-fix 8] Grow the topic list without leaving the modal. */}
+                  <button
+                    onClick={() => handleAddUnit(activeSyllabus.id)}
+                    className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-blue-400 font-semibold text-xs px-3 py-2 rounded-lg"
+                  >
+                    ＋ Add Unit
+                  </button>
                   <button 
                     onClick={() => setActiveModalSyllabus(null)}
                     className="bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-5 py-2 rounded-lg"
@@ -456,12 +594,22 @@ export default function ArenaOS() {
           {/* ASSIGNED SUBJECT SCHEDULE & ATTENDANCE ROSTER */}
           <div className="space-y-6">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Your Active Subject Assignments
+              Your Active Subject Assignments ({teacherSubjects.length})
             </h2>
 
-            {currentUser.data.assignedSubjects.map((sub) => {
-              const attendanceKey = `${sub.id}_2026-09-01`;
+            {teacherSubjects.map((sub) => {
+              const attendanceKey = `${sub.id}_${SESSION_DATE}`;
               const currentRosterState = attendanceRecords[attendanceKey] || {};
+              // [prototype-fix 6] Only this class's roll may be marked — the mock
+              // previously listed all three Form 3 students under the Class 8
+              // subject too. The real endpoint scopes the roster server-side by
+              // class + subject + period and refuses foreign slots.
+              const roster = INITIAL_STUDENTS.filter((s) => s.classGrade === sub.classGrade);
+              const tally = ATTENDANCE_STATUSES.map((st) => ({
+                status: st,
+                count: roster.filter((s) => currentRosterState[s.id] === st).length,
+              }));
+              const marked = tally.reduce((sum, t) => sum + t.count, 0);
 
               return (
                 <div key={sub.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
@@ -479,36 +627,67 @@ export default function ArenaOS() {
 
                   {/* Student Attendance Roster */}
                   <div className="space-y-2 border-t border-slate-800 pt-3">
-                    <h4 className="text-xs font-semibold text-slate-300">Mark Period Attendance:</h4>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <h4 className="text-xs font-semibold text-slate-300">Mark Period Attendance:</h4>
+
+                      <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400">
+                        {tally.map((t) => (
+                          <span key={t.status} className="bg-slate-950 border border-slate-800 rounded px-2 py-0.5">
+                            {t.status}: <strong className="text-slate-200">{t.count}</strong>
+                          </span>
+                        ))}
+                        <span className="text-slate-500">
+                          {marked}/{roster.length} on {SESSION_DATE}
+                        </span>
+                      </div>
+                    </div>
+
+                    {roster.length > 0 && (
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => handleMarkAllPresent(sub.id, roster)}
+                          className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300"
+                        >
+                          ✓ Mark all present
+                        </button>
+                      </div>
+                    )}
 
                     <div className="divide-y divide-slate-800/60">
-                      {INITIAL_STUDENTS.map((student) => {
-                        const status = currentRosterState[student.id] || 'Not Marked';
-                        return (
-                          <div key={student.id} className="py-2.5 flex items-center justify-between text-xs">
-                            <div>
-                              <p className="font-bold text-slate-200">{student.name}</p>
-                              <p className="text-[10px] text-slate-500 font-mono">{student.id}</p>
-                            </div>
+                      {roster.length === 0 ? (
+                        <p className="py-3 text-xs text-slate-500">
+                          No enrolled students match {sub.classGrade} in the mock roll, so there is
+                          nothing to mark — the real portal loads this class's roster from the API.
+                        </p>
+                      ) : (
+                        roster.map((student) => {
+                          const status = currentRosterState[student.id] || 'Not Marked';
+                          return (
+                            <div key={student.id} className="py-2.5 flex items-center justify-between text-xs">
+                              <div>
+                                <p className="font-bold text-slate-200">{student.name}</p>
+                                <p className="text-[10px] text-slate-500 font-mono">{student.id}</p>
+                              </div>
 
-                            <div className="flex gap-1.5">
-                              {['Present', 'Absent', 'Late'].map((st) => (
-                                <button
-                                  key={st}
-                                  onClick={() => handleMarkAttendance(sub.id, student.id, st)}
-                                  className={`px-3 py-1 rounded-md font-semibold text-[11px] transition-colors ${
-                                    status === st 
-                                      ? st === 'Present' ? 'bg-emerald-600 text-white' : st === 'Absent' ? 'bg-red-600 text-white' : 'bg-amber-600 text-white'
-                                      : 'bg-slate-950 hover:bg-slate-800 text-slate-400 border border-slate-800'
-                                  }`}
-                                >
-                                  {st}
-                                </button>
-                              ))}
+                              <div className="flex gap-1.5">
+                                {ATTENDANCE_STATUSES.map((st) => (
+                                  <button
+                                    key={st}
+                                    onClick={() => handleMarkAttendance(sub.id, student.id, st)}
+                                    className={`px-3 py-1 rounded-md font-semibold text-[11px] transition-colors ${
+                                      status === st
+                                        ? statusActiveClass(st)
+                                        : 'bg-slate-950 hover:bg-slate-800 text-slate-400 border border-slate-800'
+                                    }`}
+                                  >
+                                    {st}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 </div>

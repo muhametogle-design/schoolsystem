@@ -1,79 +1,99 @@
 # ArenaOS — standalone mock prototype
 
-> **Status: prototype / demo tier only. Not part of the NE-EMIS product.**
-> Nothing here talks to the FastAPI backend. There is no auth session, no
-> tenant isolation, no audit trail, and no persistence — all data lives in
-> `useState` and resets on refresh. The real, API-backed implementations of
-> these two screens are [`web/src/pages/Syllabus.jsx`](../../web/src/pages/Syllabus.jsx)
-> and [`web/src/pages/TeacherDashboard.jsx`](../../web/src/pages/TeacherDashboard.jsx).
+> **Prototype / demo tier. Not part of the NE-EMIS product.**
+> Nothing here talks to the FastAPI backend: no session, no tenant isolation, no
+> audit trail, no persistence. All data lives in `useState` and resets on refresh.
+> The API-backed implementations of these screens are
+> [`web/src/pages/Syllabus.jsx`](../../web/src/pages/Syllabus.jsx) and
+> [`web/src/pages/TeacherDashboard.jsx`](../../web/src/pages/TeacherDashboard.jsx),
+> guarded by `tests/test_syllabus_tracker.py` and `tests/test_teacher_portal_rbac.py`.
 
-## Why a CSS shim was needed
+## Layout
 
-`ArenaOS.jsx` is stored **verbatim** as authored. It is written against Tailwind
-utility classes (`bg-slate-950`, `max-w-6xl`, `text-[11px]`, `bg-red-600/20`)
-plus one custom `animate-fadeIn` class. The `web/` workspace has **no Tailwind**
-at all — it uses a hand-written design system in `web/src/styles.css` — so the
-component would render as an unstyled wall of text inside that app.
+| File | Purpose |
+|---|---|
+| `src/ArenaOS.jsx` | the screens (manager syllabus board + teacher attendance portal), with the fixes below applied and each one tagged `[prototype-fix N]` |
+| `src/index.css` | Tailwind v4 entry + the one shim the markup needs |
+| `src/ArenaOS.test.jsx` | behavioural tests for the fixes (jsdom render of the real component) |
+| `vite.config.js` | dev server on `0.0.0.0:5173`, `allowedHosts: true`, deliberately **no** `/api` proxy |
 
-This folder is therefore its own Vite project whose only extra dependency is
-Tailwind v4 through `@tailwindcss/vite` (zero config, automatic content
-scanning). `src/index.css` adds the single `fadeIn` keyframe the component
-references. `web/`, the backend, and the CI pipeline are untouched.
+## Why this folder exists instead of `web/`
+
+The component is written against Tailwind utilities (`bg-slate-950`, `max-w-6xl`,
+`text-[11px]`, `bg-red-600/20`) plus one custom `animate-fadeIn` class. The `web/`
+workspace has **no Tailwind** — it uses a hand-written design system in
+`web/src/styles.css` — so the component would render as an unstyled wall of text
+inside the real app. This folder is its own Vite project whose only extra
+dependency is Tailwind v4 via `@tailwindcss/vite` (zero config, automatic content
+scanning); `src/index.css` adds the single `fadeIn` keyframe. `web/`, the backend,
+and CI are untouched, and `.dockerignore` keeps `prototype/` out of images.
 
 ## Run it
 
 ```bash
 cd prototype/arenaos
 npm install
-npm run dev            # Vite on 0.0.0.0:5173
+npm run dev     # http://localhost:5173
+npm test        # vitest, 10 behavioural checks
+npm run build   # self-contained dist/
 ```
 
-Seeded demo logins (client-side string comparison only):
+Mock logins (client-side string comparison only):
 
-| Portal   | Credential    | Secret    |
-|----------|---------------|-----------|
-| Teacher  | `T-402`       | `1234`    |
-| Teacher  | `T-409`       | `5678`    |
-| Manager  | `admin`       | `admin123`|
+| Portal  | Credential | Secret     |
+|---------|------------|------------|
+| Teacher | `T-402`    | `1234`     |
+| Teacher | `T-409`    | `5678`     |
+| Manager | `admin`    | `admin123` |
 
-`npm run build` produces a self-contained `dist/` you can host anywhere.
+## Fixes applied to the pasted mock
 
-## Review notes on the mock
+The design itself is unchanged — same structure, same class strings, same colour
+language. Only behaviour that was broken or self-contradictory was repaired.
 
-Things a reader should know before this design is promoted to the real app.
-The first item is a genuine display bug; the rest are prototype shortcuts.
+1. **Log Topics modal rendered a stale snapshot.** `setActiveModalSyllabus(item)`
+   stored a *copy* of the row, so every unit toggle re-rendered the card behind the
+   modal while the checklist kept rendering the frozen copy and the boxes snapped
+   back. State now holds the **id** and the modal derives the live row
+   (`activeSyllabus`). Covered by test *"re-renders live unit state after each toggle"*.
+2. **`animate-fadeIn`** is not a built-in Tailwind utility — shimmed in `index.css`.
+3. **`SESSION_DATE`** replaces the literal `'2026-09-01'` that was duplicated in the
+   writer and the reader; the register key is derived once, like the real pages.
+4. **Add-subject form now exposes `target` and `deadline`.** Both already sat in
+   `newSubject` state with no inputs, so every created row silently inherited
+   80 / `2026-11-15`.
+5. **Unique plan ids.** `SYL-${Date.now().toString().slice(-3)}` reused ids freely
+   (three rolling digits), producing duplicate React keys and mis-targeted modals;
+   ids are now derived from the live list.
+6. **Roster scoped to the subject's class, four statuses.** All three Form 3
+   students were listed under the Class 8 subject, and only Present/Absent/Late
+   existed. Now `roster = students.filter(classGrade)` with Present/Absent/Late/
+   **Excused**, matching the product's 4-tap register.
+7. **Manager username is trimmed and case-insensitive**, mirroring what the staff-ID
+   branch already did.
+8. **Units can be added, and manager-created subjects reach the teacher portal.**
+   A plan used to be born with one hard-coded "Chapter 1: Foundations" and no way
+   to grow; new subjects also never appeared for the assigned teacher, so manager
+   "CRUD" only ever moved the manager's own board. Both are now wired (`＋ Add Unit`,
+   derived `teacherSubjects`).
+9. **Labels are paired with their inputs** (`htmlFor`/`id`), which also normalises the
+   one label that had lost Tailwind's `block` class. Unlabelled controls are invisible
+   to assistive tech and to `getByLabelText`.
+10. **Logout resets the role tab and closes the CRUD form.** Previously a manager who
+    signed out and then tried a teacher account stayed on the *Manager* tab and was
+    told "Invalid Manager Credentials" for valid staff IDs.
 
-1. **The "Log Topics" modal does not visibly react to its checkboxes.**
-   `activeModalSyllabus` holds a *snapshot copy* of the row, so after
-   `handleToggleTopic` updates `syllabusList` the modal still renders the stale
-   `unit.covered` values and the boxes snap back. Progress on the card behind
-   the modal does move. One-line fix — derive the open row instead of copying it:
-   ```jsx
-   const activeSyllabus = activeModalSyllabus
-     ? syllabusList.find((s) => s.id === activeModalSyllabus.id) ?? null
-     : null;
-   ```
-   then render `activeSyllabus` and keep `setActiveModalSyllabus(id)` as the
-   open/close signal.
-2. **`animate-fadeIn`** is not a built-in Tailwind utility (shimmed here).
-3. **Hardcoded `2026-09-01`** attendance key (twice) — the real pages use
-   `new Date().toISOString().slice(0, 10)` and a date picker.
-4. **`handleAddSubject` ignores `target` and `deadline` in the UI** — they sit in
-   `newSubject` state but have no inputs, so new rows silently inherit 80 /
-   `2026-11-15`.
-5. **`id: \`SYL-${Date.now().toString().slice(-3)}\`** collides easily (3 digits of
-   a rolling timestamp) and duplicates can make React keys non-unique.
-6. **New syllabus rows never reach the teacher side** — `assignedSubjects` comes
-   from the frozen `INITIAL_TEACHERS`, so a manager-created subject is invisible
-   to the teacher portal.
-7. **No `Excused` status** — the real roster is Present / Absent / Late /
-   Excused (4 taps), and the real backend writes a `SubjectAttendance` row per
-   class + subject + period slot.
-8. **Attendance is not filtered by `classGrade`** — `INITIAL_STUDENTS` is shown
-   for every subject, so Class 8 would list Form 3 students.
-9. **Client-side auth only** — no rate limit, no session, PINs in source.
-   The real flow is Argon2-hashed Staff ID + PIN over `/api/auth/login` with an
-   HttpOnly cookie and `RBAC` guards on every route.
-10. **Manager portal is syllabus-only** — the real School Manager keeps the full
-    ERP (students, staff, streams, schedules, private billing behind the
-    financial firewall).
+## Still mock by design (do not promote as-is)
+
+- **Auth is client-side only** — no hashing, no rate limit, no session cookie. The
+  product uses Argon2-hashed Staff ID + PIN over `/api/auth/login` with an HttpOnly
+  cookie, `login_rate_limit` throttling, and role guards on every route.
+- **No audit trail.** `log_topics_covered` in `app/services/syllabus.py` writes a
+  checkpoint per toggle; here a checkbox just flips a boolean.
+- **No server-side slot ownership.** The real endpoint refuses to open a register for
+  a class/subject/period the teacher does not own; this mock simply filters a list.
+- **Manager portal is syllabus-only**; the real School Manager keeps the full ERP
+  (students, staff, streams, schedules, and private billing behind the financial
+  firewall), and State Admin/Inspector roles do not exist here at all.
+- **Benchmarks are cosmetic.** No midterm/final gates, no `On Track` / `Ahead` /
+  `Behind Schedule` computation from `expected_pct`, no deadline red-alarm.

@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "dev-only-secret-rotate-me-in-production"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
+    # NOTE: app/core/ratelimit.py builds its `login_throttle` singleton at import
+    # time with the same defaults and does not read these two fields, so overriding
+    # LOGIN_RATE_LIMIT / LOGIN_RATE_WINDOW_SECONDS in .env has no effect today.
+    # Keep the values in sync with that singleton (or wire settings into it) before
+    # advertising them as tunable.
     login_rate_limit: int = 5          # failed attempts allowed per window
     login_rate_window_seconds: int = 900
 
