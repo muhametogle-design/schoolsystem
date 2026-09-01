@@ -1,5 +1,6 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { api, qs } from '../../api/client';
+import { deleteStudentPhoto, uploadStudentPhoto } from '../media/mediaSlice';
 
 /** Class 1-12 accordion feed. */
 export const fetchStudentsByClass = createAsyncThunk(
@@ -109,6 +110,13 @@ const studentSlice = createSlice({
       .addCase(lookupStudent.rejected, (state, action) => {
         state.error = action.error.message;
         state.lookup = null;
+      })
+      // Refinement 5: keep the open profile in sync with the media engine.
+      .addCase(uploadStudentPhoto.fulfilled, (state, action) => {
+        state.selected = action.payload.student;
+      })
+      .addCase(deleteStudentPhoto.fulfilled, (state, action) => {
+        state.selected = action.payload.student;
       });
   },
 });

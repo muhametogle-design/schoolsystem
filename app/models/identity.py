@@ -38,6 +38,11 @@ class PrivateSchool(Base):
     billing_address: Mapped[str | None] = mapped_column(Text)
     billing_notes: Mapped[str | None] = mapped_column(Text)
 
+    # Refinements 7-8: the JSON design-system configuration a School Manager
+    # has *pushed live* (accent colour, typography, block visibility). Local
+    # drafts stay in the manager's browser until explicitly published.
+    design_config: Mapped[str | None] = mapped_column(Text)
+
     created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())
 
     classes = relationship("SchoolClass", back_populates="school", cascade="all, delete-orphan")
@@ -100,6 +105,8 @@ class User(Base):
     qualifications: Mapped[str | None] = mapped_column(Text)
     designation: Mapped[str | None] = mapped_column(String(100))
     bio: Mapped[str | None] = mapped_column(Text)
+    # Refinement 5: profile photo (data-URL) — writable by school managers only.
+    photo_data: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())

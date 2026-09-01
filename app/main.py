@@ -26,7 +26,9 @@ from app.api import (
     backups,
     biometrics,
     billing,
+    design,
     health,
+    media,
     school,
     management,
     state,
@@ -167,6 +169,9 @@ app.include_router(syllabus.router)
 app.include_router(teachers.router)
 app.include_router(backups.router)
 app.include_router(biometrics.router)
+# Refinement 5 (role-gated profile media) + Refinements 7-8 (design system).
+app.include_router(media.router)
+app.include_router(design.router)
 app.include_router(ws.router)
 
 

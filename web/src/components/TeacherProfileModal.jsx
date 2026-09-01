@@ -1,11 +1,29 @@
 import { useEffect } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import AvatarCard from './AvatarCard';
+import { selectIsManager } from '../features/auth/authSlice';
+import {
+  clearMediaNotice,
+  deleteTeacherPhoto,
+  selectMediaBusy,
+  selectMediaError,
+  selectMediaNotice,
+  uploadTeacherPhoto,
+} from '../features/media/mediaSlice';
 
 /**
  * Reusable, keyboard-friendly detailed teaching-profile view. The assignments
  * list is authoritative: it comes from the class/subject/teacher mapping API,
- * not from historical grade entries.
+ * not from historical grade entries. Refinement 5 adds the role-gated profile
+ * media card (uploads are manager-only; every other role sees READ-ONLY).
  */
-export default function TeacherProfileModal({ teacher, onClose }) {
+export default function TeacherProfileModal({ teacher, onClose, onTeacherChange }) {
+  const dispatch = useDispatch();
+  const canManageMedia = useSelector(selectIsManager);
+  const mediaBusy = useSelector(selectMediaBusy);
+  const mediaError = useSelector(selectMediaError);
+  const mediaNotice = useSelector(selectMediaNotice);
+
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === 'Escape') onClose?.();
@@ -14,9 +32,19 @@ export default function TeacherProfileModal({ teacher, onClose }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    if (!mediaNotice && !mediaError) return undefined;
+    const timer = setTimeout(() => dispatch(clearMediaNotice()), 5000);
+    return () => clearTimeout(timer);
+  }, [mediaNotice, mediaError, dispatch]);
+
   if (!teacher) return null;
   const assignments = teacher.assignments ?? teacher.assigned_subjects ?? [];
   const schedule = teacher.classroom_schedule ?? [];
+
+  const applyTeacher = (action) => {
+    if (action.payload?.teacher) onTeacherChange?.(action.payload.teacher);
+  };
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -38,6 +66,26 @@ export default function TeacherProfileModal({ teacher, onClose }) {
             Close
           </button>
         </header>
+
+        {/* Refinement 5 — role-gated staff photo/media card. */}
+        <AvatarCard
+          name={teacher.name}
+          subtitle={
+            <>
+              <span className="mono">{teacher.ne_tid ?? teacher.staff_identifier ?? '—'}</span>
+              {teacher.designation ? ` · ${teacher.designation}` : ''}
+            </>
+          }
+          photoData={teacher.photo_data}
+          canEdit={canManageMedia}
+          busy={mediaBusy}
+          notice={mediaNotice}
+          error={mediaError}
+          onUpload={(photoData) =>
+            dispatch(uploadTeacherPhoto({ teacherId: teacher.id, photoData })).then(applyTeacher)
+          }
+          onRemove={() => dispatch(deleteTeacherPhoto({ teacherId: teacher.id })).then(applyTeacher)}
+        />
 
         <div className="detail-grid">
           <div className="detail-block">

@@ -70,6 +70,8 @@ def _profile(student: Student) -> dict:
         "class_label": _class_label(klass),
         "class_level": klass.class_level if klass else None,
         "physical_address": student.physical_address,
+        # Refinement 5: read-only avatar payload (writes are manager-only).
+        "photo_data": student.photo_data,
         "fee_status": student.fee_status,
         "enrollment_date": student.enrollment_date.isoformat() if student.enrollment_date else None,
         "is_active": student.is_active,

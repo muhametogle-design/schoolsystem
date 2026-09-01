@@ -183,7 +183,16 @@ export default function Teachers() {
         )}
       </section>
 
-      <TeacherProfileModal teacher={selectedTeacher} onClose={() => setSelectedTeacher(null)} />
+      <TeacherProfileModal
+        teacher={selectedTeacher}
+        onClose={() => setSelectedTeacher(null)}
+        onTeacherChange={(updated) => {
+          setSelectedTeacher(updated);
+          setTeachers((current) =>
+            current.map((row) => (row.id === updated.id ? { ...row, photo_data: updated.photo_data } : row))
+          );
+        }}
+      />
     </div>
   );
 }

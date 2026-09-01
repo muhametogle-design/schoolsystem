@@ -9,6 +9,8 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    // Accept the sandboxed preview proxy host (…e2b.app) alongside localhost.
+    allowedHosts: ['localhost', '127.0.0.1', '.e2b.app'],
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

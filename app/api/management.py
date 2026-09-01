@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import require_school
+from app.api.deps import _audit, require_school
 from app.core.db import get_db
 from app.core.security import hash_password
 from app.core.ws import manager as websocket_manager
@@ -94,6 +94,8 @@ def teacher_payload(db: Session, teacher: User, *, include_assignments: bool = T
         "qualifications": teacher.qualifications,
         "designation": teacher.designation,
         "bio": teacher.bio,
+        # Refinement 5: read-only avatar payload (writes are manager-only).
+        "photo_data": teacher.photo_data,
         "is_active": bool(teacher.is_active),
         "assignment_count": len(assignments),
         "assignments": assignments,
@@ -247,7 +249,27 @@ def list_teachers(user: User = Depends(any_school_user), db: Session = Depends(g
 
 
 @router.get("/teachers/{teacher_id}")
-def get_teacher(teacher_id: int, user: User = Depends(any_school_user), db: Session = Depends(get_db)):
+def get_teacher(
+    teacher_id: int,
+    request: Request,
+    user: User = Depends(any_school_user),
+    db: Session = Depends(get_db),
+):
+    # Refinement 3 — staff-record privacy: a teacher may open only their own
+    # profile. Cross-teacher reads of personal information are blocked and
+    # audited; school managers retain full directory visibility.
+    if user.role == "teacher" and user.id != teacher_id:
+        _audit(
+            db,
+            user,
+            request,
+            "BLOCKED",
+            f"Teacher attempted to open another staff member's profile (user #{teacher_id})",
+        )
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Teachers cannot view personal records belonging to other staff members",
+        )
     return {"teacher": teacher_payload(db, _teacher_or_404(db, user.school_id, teacher_id))}
 
 

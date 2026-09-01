@@ -2,12 +2,21 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import Badge from '../components/Badge';
+import AvatarCard from '../components/AvatarCard';
 import {
   clearNotice,
   fetchStudent,
   selectSelectedStudent,
   updateStudent,
 } from '../features/students/studentSlice';
+import {
+  clearMediaNotice,
+  deleteStudentPhoto,
+  selectMediaBusy,
+  selectMediaError,
+  selectMediaNotice,
+  uploadStudentPhoto,
+} from '../features/media/mediaSlice';
 import { fetchClasses, selectClasses } from '../features/schools/schoolSlice';
 import { selectIsManager, selectIsTeacher } from '../features/auth/authSlice';
 
@@ -20,6 +29,11 @@ export default function StudentDetails() {
   const classes = useSelector(selectClasses);
   const { saving, error, notice } = useSelector((state) => state.students);
   const canEdit = useSelector(selectIsManager) || useSelector(selectIsTeacher);
+  // Refinement 5 — photo uploads and edits are strictly manager-only.
+  const canManageMedia = useSelector(selectIsManager);
+  const mediaBusy = useSelector(selectMediaBusy);
+  const mediaError = useSelector(selectMediaError);
+  const mediaNotice = useSelector(selectMediaNotice);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(null);
@@ -28,6 +42,12 @@ export default function StudentDetails() {
     dispatch(fetchStudent(neSid));
     dispatch(fetchClasses());
   }, [dispatch, neSid]);
+
+  useEffect(() => {
+    if (!mediaNotice && !mediaError) return undefined;
+    const timer = setTimeout(() => dispatch(clearMediaNotice()), 5000);
+    return () => clearTimeout(timer);
+  }, [mediaNotice, mediaError, dispatch]);
 
   useEffect(() => {
     if (student) {
@@ -92,6 +112,24 @@ export default function StudentDetails() {
 
         {notice && <p className="alert alert--ok">{notice}</p>}
         {error && <p className="alert alert--danger">{error}</p>}
+
+        {/* Refinement 5 — role-gated profile photo/media card. */}
+        <AvatarCard
+          name={student.full_legal_name}
+          subtitle={
+            <>
+              <span className="mono">{student.roll_number ?? student.ne_sid}</span>
+              {student.class_label ? ` · ${student.class_label}` : ''}
+            </>
+          }
+          photoData={student.photo_data}
+          canEdit={canManageMedia}
+          busy={mediaBusy}
+          notice={mediaNotice}
+          error={mediaError}
+          onUpload={(photoData) => dispatch(uploadStudentPhoto({ key: student.roll_number ?? student.ne_sid, photoData }))}
+          onRemove={() => dispatch(deleteStudentPhoto({ key: student.roll_number ?? student.ne_sid }))}
+        />
 
         {!editing ? (
           <div className="detail-grid">

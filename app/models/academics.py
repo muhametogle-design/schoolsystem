@@ -89,6 +89,8 @@ class Student(Base):
     guardian_email: Mapped[str | None] = mapped_column(String(255))
     emergency_contact_phone: Mapped[str | None] = mapped_column(String(50))
     physical_address: Mapped[str | None] = mapped_column(Text)
+    # Refinement 5: profile photo (data-URL) — writable by school managers only.
+    photo_data: Mapped[str | None] = mapped_column(Text)
     #: PAID | PENDING | NOT_PAID | SCHOLARSHIP — drives the fee collection matrix.
     fee_status: Mapped[str] = mapped_column(String(20), default="NOT_PAID", nullable=False)
     enrollment_date: Mapped[dt.date | None] = mapped_column(Date)

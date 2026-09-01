@@ -4,9 +4,18 @@ import { useDispatch, useSelector } from 'react-redux';
 import Logo from './Logo';
 import Badge from './Badge';
 import DataSaverToggle from './DataSaverToggle';
+import BackBar from './BackBar';
+import DesignDrawer from './DesignDrawer';
+import PublishBar from './PublishBar';
+import MobilePreviewFrame from './MobilePreviewFrame';
 import { logout, selectIsStateAdmin, selectUser } from '../features/auth/authSlice';
 import { fetchInstitutions, selectInstitutions } from '../features/schools/schoolSlice';
 import { selectSaverActive, selectSaverReason } from '../features/ui/uiSlice';
+import {
+  fetchDesignConfig,
+  selectMobilePreview,
+  setDrawerOpen,
+} from '../features/design/designSlice';
 
 const SCHOOL_NAV = [
   { to: '/school', label: 'Dashboard', end: true },
@@ -20,8 +29,15 @@ const SCHOOL_NAV = [
   { to: '/school/billing', label: 'Billing', managerOnly: true },
 ];
 
-/** Refinement 2 — teaching staff get a deliberately short nav. */
-const TEACHER_NAV = [{ to: '/school/portal', label: 'My teaching day', end: true }];
+/**
+ * Refinements 2-3 — teaching staff get a deliberately short nav. Department
+ * Heads additionally hold syllabus authority (refinement 1: Log Topic
+ * Covered), so their nav exposes the tracker too.
+ */
+const TEACHER_NAV = [
+  { to: '/school/portal', label: 'My teaching day', end: true },
+  { to: '/school/syllabus', label: 'Syllabus tracker', deptHeadOnly: true },
+];
 
 const STATE_NAV = [
   { to: '/state', label: 'Live monitor', end: true },
@@ -38,15 +54,18 @@ export default function Layout({ portal }) {
   const institutions = useSelector(selectInstitutions);
   const saverActive = useSelector(selectSaverActive);
   const saverReason = useSelector(selectSaverReason);
+  const mobilePreview = useSelector(selectMobilePreview);
   const isState = portal === 'state';
   const nav = (isState ? STATE_NAV : user?.role === 'teacher' ? TEACHER_NAV : SCHOOL_NAV).filter(
     (item) =>
       (!item.managerOnly || user?.role === 'school_manager') &&
-      (!item.stateAdminOnly || user?.role === 'state_admin')
+      (!item.stateAdminOnly || user?.role === 'state_admin') &&
+      (!item.deptHeadOnly || user?.is_department_head === true)
   );
 
   useEffect(() => {
     if (isState) dispatch(fetchInstitutions());
+    else dispatch(fetchDesignConfig()); // Refinement 7-8: hydrate the live theme
   }, [isState, dispatch]);
 
   const onSignOut = async () => {
@@ -93,17 +112,34 @@ export default function Layout({ portal }) {
             <p className="topbar__sub">{isState ? (isStateAdmin ? 'Tenant provisioning, roll-number oversight & academic visibility' : 'Read-only academic oversight across licensed schools') : 'Tenant ERP · students, staff, curriculum, attendance and private billing'}</p>
           </div>
           <div className="topbar__right">
+            <button
+              type="button"
+              className="design-trigger"
+              onClick={() => dispatch(setDrawerOpen(true))}
+              title="Open Design & Layout Settings"
+            >
+              🎨 <span className="design-trigger__label">Design</span>
+            </button>
             <DataSaverToggle />
             <Badge status="Active">{isState ? stateRoleLabel : user?.role === 'school_manager' ? 'SCHOOL ADMIN' : 'TEACHING STAFF'}</Badge>
           </div>
         </header>
+        {/* Refinement 4 — global history back button + route breadcrumbs. */}
+        <BackBar fallback={isState ? '/state' : user?.role === 'teacher' ? '/school/portal' : '/school'} />
         {saverActive && (
           <p className="saver-banner" role="status">
             Data Saver active{isState ? '' : ''}{saverReason && saverReason !== 'Manually enabled' ? ` — ${saverReason}` : ''}. Animations, gradients and chart graphics are replaced with raw text metrics for faster loading on 2G/3G.
           </p>
         )}
-        <div className="content"><Outlet /></div>
+        <div className={`content ${!isState && user?.role === 'school_manager' ? 'content--with-publish-bar' : ''}`}><Outlet /></div>
       </main>
+
+      {/* Refinement 7 — slide-out design system drawer (header triggered). */}
+      <DesignDrawer />
+      {/* Refinement 8 — sticky publishing controls for School Managers. */}
+      {!isState && <PublishBar />}
+      {/* Refinement 8 — 375px viewport simulator. */}
+      {mobilePreview && <MobilePreviewFrame />}
     </div>
   );
 }

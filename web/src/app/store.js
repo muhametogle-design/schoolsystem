@@ -9,6 +9,8 @@ import syllabusReducer from '../features/syllabus/syllabusSlice';
 import biometricsReducer from '../features/biometrics/biometricsSlice';
 import backupsReducer from '../features/backups/backupsSlice';
 import teacherPortalReducer from '../features/teacherPortal/teacherPortalSlice';
+import designReducer from '../features/design/designSlice';
+import mediaReducer from '../features/media/mediaSlice';
 
 export const store = configureStore({
   reducer: {
@@ -22,5 +24,7 @@ export const store = configureStore({
     biometrics: biometricsReducer,
     backups: backupsReducer,
     teacherPortal: teacherPortalReducer,
+    design: designReducer,
+    media: mediaReducer,
   },
 });

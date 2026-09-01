@@ -442,3 +442,41 @@ class BiometricVerifyCompleteRequest(BaseModel):
     authenticator_data_b64: str
     signature_b64: str
     expected_challenge: str
+
+
+# ===========================================================================
+# Refinement 5 — Role-gated photo & media management
+# ===========================================================================
+
+
+class PhotoUpdate(BaseModel):
+    """Profile photo write payload (school managers only).
+
+    The browser downscales the selected image and submits it as a data URL so
+    the portable SQLite tier can store avatars without an object store.
+    """
+
+    photo_data: str = Field(min_length=32, max_length=900_000)
+
+
+# ===========================================================================
+# Refinements 7-8 — Dynamic design system & publishing controls
+# ===========================================================================
+
+#: One-click accent palette offered by the Design & Layout drawer.
+ALLOWED_ACCENTS = ("#2563eb", "#059669", "#d97706", "#dc2626", "#7c3aed")
+#: Typography presets offered by the drawer.
+ALLOWED_FONTS = ("sans", "serif", "mono")
+#: Dashboard blocks a manager may show/hide in real time.
+ALLOWED_BLOCKS = ("profileCard", "academicOverview", "attendanceSummary", "biometricsBadge")
+
+
+class DesignConfigPayload(BaseModel):
+    """Live design-system configuration pushed by a School Manager."""
+
+    accent: str = Field(pattern="^#[0-9a-fA-F]{6}$")
+    font: str = Field(pattern="^(sans|serif|mono)$")
+    blocks: dict[str, bool] = Field(default_factory=dict)
+
+    def sanitized_blocks(self) -> dict[str, bool]:
+        return {name: bool(self.blocks.get(name, True)) for name in ALLOWED_BLOCKS}

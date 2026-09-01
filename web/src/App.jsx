@@ -23,6 +23,7 @@ import Backups from './pages/Backups';
 import TeacherDashboard from './pages/TeacherDashboard';
 import DataSaverToggle from './components/DataSaverToggle';
 import { useDataSaverDetection } from './hooks/useDataSaver';
+import { useDesignSystem } from './hooks/useDesignSystem';
 
 const STATE_ROLES = new Set(['state_admin', 'inspector', 'state_inspector']);
 const isStateUser = (user) => STATE_ROLES.has(user?.role);
@@ -40,6 +41,22 @@ function TeacherOnly({ children }) {
   const user = useSelector(selectUser);
   if (!user) return <Navigate to="/" replace />;
   if (user.role !== 'teacher') return <Navigate to="/school" replace />;
+  return children;
+}
+
+/**
+ * Refinements 2-3 — teacher lane enforcement.
+ *
+ * Regular teachers are bounced back to "My teaching day" from every other
+ * school route (they hold no directory/staff-record access). Department Heads
+ * may additionally open the syllabus tracker (refinement 1 topic authority).
+ */
+function TeacherLane({ children, allowDeptHead = false }) {
+  const user = useSelector(selectUser);
+  if (!user) return <Navigate to="/" replace />;
+  if (user.role === 'teacher' && !(allowDeptHead && user.is_department_head === true)) {
+    return <Navigate to="/school/portal" replace />;
+  }
   return children;
 }
 
@@ -75,6 +92,8 @@ export default function App() {
 
   // Module 3: track device network signals for the low-bandwidth Data Saver.
   useDataSaverDetection();
+  // Refinements 7-8: bind the design-system draft to :root CSS variables.
+  useDesignSystem();
 
   useEffect(() => {
     // Probe on every fresh app load. This restores an HttpOnly cookie-backed
@@ -106,21 +125,23 @@ export default function App() {
         {/* Teachers are redirected to their restricted portal dashboard. */}
         <Route path="/school" element={user?.role === 'teacher' ? <Navigate to="/school/portal" replace /> : <SchoolDashboard />} />
         <Route path="/school/portal" element={<TeacherOnly><TeacherDashboard /></TeacherOnly>} />
-        <Route path="/school/students" element={<Students />} />
-        <Route path="/school/students/:neSid" element={<StudentDetails />} />
-        <Route path="/school/classes" element={<Classes />} />
-        <Route path="/school/teachers" element={<Teachers />} />
-        <Route path="/school/attendance" element={<Attendance />} />
-        <Route path="/school/substitutions" element={<Substitutions />} />
-        <Route path="/school/syllabus" element={<Syllabus />} />
-        <Route path="/school/biometrics" element={<Biometrics />} />
+        {/* Every route below stays inside the teacher lane rules (refinement 3). */}
+        <Route path="/school/students" element={<TeacherLane><Students /></TeacherLane>} />
+        <Route path="/school/students/:neSid" element={<TeacherLane><StudentDetails /></TeacherLane>} />
+        <Route path="/school/classes" element={<TeacherLane><Classes /></TeacherLane>} />
+        <Route path="/school/teachers" element={<TeacherLane><Teachers /></TeacherLane>} />
+        <Route path="/school/attendance" element={<TeacherLane><Attendance /></TeacherLane>} />
+        <Route path="/school/substitutions" element={<TeacherLane><Substitutions /></TeacherLane>} />
+        {/* Refinement 1 — Department Heads keep syllabus topic authority. */}
+        <Route path="/school/syllabus" element={<TeacherLane allowDeptHead><Syllabus /></TeacherLane>} />
+        <Route path="/school/biometrics" element={<TeacherLane><Biometrics /></TeacherLane>} />
         <Route path="/school/billing" element={<ManagerOnly><Billing /></ManagerOnly>} />
         {/* Canonical report-card path from the brief. */}
-        <Route path="/students/:neSid/report-card" element={<ReportCard />} />
+        <Route path="/students/:neSid/report-card" element={<TeacherLane><ReportCard /></TeacherLane>} />
       </Route>
 
       {/* Print route — rendered without application chrome. */}
-      <Route path="/school/students/:neSid/report-card" element={<SchoolOnly><ReportCard /></SchoolOnly>} />
+      <Route path="/school/students/:neSid/report-card" element={<SchoolOnly><TeacherLane><ReportCard /></TeacherLane></SchoolOnly>} />
 
       <Route element={<StateOnly><Layout portal="state" /></StateOnly>}>
         <Route path="/state" element={<StateDashboard />} />

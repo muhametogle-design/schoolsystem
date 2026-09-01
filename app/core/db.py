@@ -77,7 +77,9 @@ COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("users", "is_active", "BOOLEAN DEFAULT 1"),
     ("users", "staff_pin_hash", "VARCHAR(255)"),
     ("users", "is_department_head", "BOOLEAN DEFAULT 0"),
+    ("users", "photo_data", "TEXT"),
     ("private_schools", "school_code", "VARCHAR(2)"),
+    ("private_schools", "design_config", "TEXT"),
     ("private_schools", "billing_contact_name", "VARCHAR(255)"),
     ("private_schools", "billing_phone", "VARCHAR(50)"),
     ("private_schools", "billing_email", "VARCHAR(255)"),
@@ -86,6 +88,7 @@ COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("students", "roll_number", "VARCHAR(30)"),
     ("students", "physical_address", "TEXT"),
     ("students", "fee_status", "VARCHAR(20) DEFAULT 'NOT_PAID'"),
+    ("students", "photo_data", "TEXT"),
 )
 
 # The requested initial estate has fixed, meaningful codes. Older databases

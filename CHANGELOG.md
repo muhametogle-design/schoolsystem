@@ -4,6 +4,63 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] — 2026-09-01
+
+### Added — Navigation history, role-gated media, design system & publishing controls
+
+- **Global Navigation & History Back Button (Refinement 4)**: sticky
+  `← Back` bar on every portal page — browser-history navigation
+  (`navigate(-1)`) with an automatic fallback to the role's portal dashboard
+  when the tab has no history stack (deep links), plus live route breadcrumbs
+  (e.g. `Dashboard > Student Directory > Profile NG-10001`).
+- **Role-Gated Photo & Media Engine (Refinement 5)**: `photo_data` columns on
+  students and staff (additive migrations), integrated avatar cards on the
+  Student details page and the Teacher profile modal. Uploads, replacements
+  and deletions are **manager-only** (`/api/v1/school/media/…`, audited);
+  teachers and students get a READ-ONLY badge with no path to the picker.
+  The UI drives a hidden `accept="image/*"` file input, auto-downscales
+  selections in-browser to ≤400px data URLs and previews them instantly;
+  the API validates data-URL images (png/jpeg/webp/gif, ≤512 KiB decoded,
+  `413` above) and the serialised profile carries the new media state.
+- **Fluid Responsiveness (Refinement 6)**: page-level fluid grid utilities
+  (`grid-fluid`), new 1280/920px breakpoints collapsing two-pane cards and
+  detail grids, media overflow guards, and tablet/phone stacking for the
+  timeline, roster marks, avatar card and publishing bar — no horizontal
+  scrolling on any viewport class (verify with Test Mobile View).
+- **Dynamic Design System & Sidebar Control Menu (Refinement 7)**: slide-out
+  **Design & Layout Settings** drawer from the header — one-click global
+  accent palette (`#2563eb`, `#059669`, `#d97706`, `#dc2626`, `#7c3aed`)
+  applied instantly through root CSS variables across buttons, badges,
+  progress bars and borders; typography presets (System Sans-Serif / Classic
+  Serif / Monospace Technical); and real-time visibility toggles for the four
+  dashboard blocks (Profile Card, Academic Overview, Attendance Summary,
+  Biometrics Badge), two of which are new snapshot cards.
+- **Publishing & Deployment Controls (Refinement 8)**: sticky Publishing
+  Control Bar for School Managers — **Save Progress** persists the draft
+  layout locally (localStorage) without touching live users; **Test Mobile
+  View** opens a realistic 375×667 device-frame simulator rendering the
+  genuinely responsive app via a same-origin iframe; **Push Live** raises a
+  confirmation dialog that syncs theme variables and block configuration to
+  the tenant record (`/api/v1/school/design-config`), audited and read back
+  by every user in the school.
+
+### Changed
+
+- **Teacher RBAC tightened (Refinements 2-3)**: teachers are now confined to
+  their portal by a route-level *teacher lane*; other school pages redirect
+  to "My teaching day". Department Heads additionally receive the syllabus
+  tracker nav entry and route. The staff API blocks teachers from opening
+  **other** teachers' profiles (`403` + audit); self-reads and manager
+  directory access are unchanged.
+- The Vite dev server allowlists the sandboxed preview host (`.e2b.app`).
+
+### Quality
+
+- 8 new backend contracts (`tests/test_media_engine.py`): manager media gate,
+  teacher/state write refusals, payload validation + size ceiling, staff
+  cross-profile privacy, design-config defaults/validation/publish; the full
+  pytest suite is 101 tests, all green.
+
 ## [2.1.0] — 2026-09-01
 
 ### Added — Manager syllabus administration & subject-restricted teacher portals
