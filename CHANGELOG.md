@@ -61,6 +61,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cross-profile privacy, design-config defaults/validation/publish; the full
   pytest suite is 101 tests, all green.
 
+### Added — Self-hosting (real, non-demo deployments)
+
+- **`scripts/bootstrap_real.py`**: one-command provisioning of a production
+  deployment with no demo records — a State Admin account, the current
+  academic year, and a fully provisioned school tenant (Class 1–12, 120
+  subjects, roll allocator, tuition rates, 8 template faculty, complete
+  subject/staff mappings) with caller-chosen manager credentials.
+- **`TERMUX.md`**: end-to-end guide for running the whole system realtime on
+  a Termux phone at `http://127.0.0.1:8000` (one uvicorn process serving both
+  API and built SPA), including a phone-safe dependency path (no
+  `psycopg2-binary`, plain `uvicorn`) and every-day operations.
+- **`schoolsystem-termux-realtime.zip`**: repo snapshot with a prebuilt
+  `web/dist/`, so a phone deployment needs Python only — no Node build step.
+
 ## [2.1.0] — 2026-09-01
 
 ### Added — Manager syllabus administration & subject-restricted teacher portals
