@@ -158,3 +158,10 @@ tail -f data/*.log 2>/dev/null         # (if you redirected logs)
 - **Page loads but sign-in fails** → you skipped step **E** (there are no
   accounts in real mode until you register your school).
 - **Port already in use** → an old server is still running: `pkill -f uvicorn`.
+- **`bash: .venv/bin/python: No such file or directory`** → the venv was never
+  created here, was made in another folder, or its creation failed. Stand in
+  `~/schoolsystem` (check the prompt shows `~/schoolsystem $`) and rebuild:
+  `rm -rf .venv && python -m venv --system-site-packages .venv` — never *move*
+  a `.venv` between folders (its scripts hardcode the original absolute path).
+- **Anything disk-related fails oddly** → check free space: `df -h $PREFIX |
+  tail -1` (want ≥1.5 GB free); uninstall apps or `pkg clean` to make room.
