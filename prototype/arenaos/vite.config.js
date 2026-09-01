@@ -6,9 +6,13 @@ import tailwindcss from '@tailwindcss/vite';
 // content scanning), so the pasted utility classes render without the SPA build
 // in web/ being touched at all. There is deliberately no /api proxy — this
 // prototype runs entirely on the mock data inside ArenaOS.jsx.
+// Pages serves this folder under /schoolsystem/prototype/; a relative base is
+// right for a local dist/ copy (any host, any depth, even file://). Override with
+// BASE_PATH when the deploy target needs absolute asset URLs.
+const BASE_PATH = process.env.BASE_PATH || './';
+
 export default defineConfig({
-  // Relative base so dist/ works from any host, subpath or the filesystem.
-  base: './',
+  base: BASE_PATH,
   plugins: [react(), tailwindcss()],
   server: {
     host: '0.0.0.0',

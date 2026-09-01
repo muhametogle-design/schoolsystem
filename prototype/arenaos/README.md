@@ -17,6 +17,7 @@
 | `src/ArenaOS.test.jsx` | behavioural tests for the fixes (jsdom render of the real component) |
 | `src/dist-artifact.test.jsx` | guards the built files in `dist/`, incl. that the bundle actually boots |
 | `tools/make-single-file.mjs` | emits `dist/ArenaOS.html`: no npm, no network, no Babel in the browser |
+| `ci/` | GitHub Pages + CI jobs for this folder, ready to copy into `.github/workflows/` |
 | `serve.py` | stdlib static server with no-cache headers, for Termux/`python` |
 | `vite.config.js` | dev server on `0.0.0.0:5173`, `allowedHosts: true`, deliberately **no** `/api` proxy |
 
@@ -38,6 +39,8 @@ cd prototype/arenaos
 npm install
 npm run dev     # http://localhost:5173
 npm test        # vitest, 10 behavioural checks
+npm ci          # registry install, locked versions — the primary route
+npm run dev -- --host 0.0.0.0 --port 5173   # then http://127.0.0.1:5173
 npm run build   # Vite dist/ + the self-contained ArenaOS.html (see tools/make-single-file.mjs)
 npm test        # 14 checks: 10 source-level + 4 dist-artefact guards
 npm run serve   # python3 serve.py 8090 from the folder, or `npm run serve:dist` for dist/
@@ -101,6 +104,15 @@ Tailwind stylesheet is the one `vite build` emitted.
 pasting them inline: `react-dom.production.min.js` embeds `<script>` plus a
 closing tag inside one of its own string literals, and any inline scheme that
 ignores that either truncates the page or corrupts the bundle.
+
+## Published online
+
+`ci/pages.yml` (copy into `.github/workflows/`, see `ci/README.md`) runs
+`npm ci && npm run build && npm test` and deploys `dist/` to GitHub Pages under
+`/schoolsystem/prototype/`. `ci/ci.yml` carries the matching `prototype` job for the
+main pipeline. Neither is installed: this workspace's GitHub App is not allowed to
+write `.github/workflows/*`. The npm install itself is the primary workflow —
+`ci/*` only publishes it.
 
 ## Still mock by design (do not promote as-is)
 
