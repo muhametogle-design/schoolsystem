@@ -69,12 +69,22 @@ export const clearStoredUser = () => removeStorage(USER_KEY);
 
 export async function api(path, { method = 'GET', body } = {}) {
   const token = getToken();
+  // Module 3: tell the backend the request prefers minimal payloads when the
+  // low-bandwidth Data Saver mode is resolved active.
+  const dataSaver = (() => {
+    try {
+      return document.documentElement.dataset.saver === '1';
+    } catch {
+      return false;
+    }
+  })();
   const res = await fetch(path, {
     method,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(dataSaver ? { 'X-Data-Saver': '1', 'Save-Data': 'on' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });

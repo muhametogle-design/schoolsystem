@@ -91,6 +91,11 @@ class User(Base):
 
     # NE-MID (managers) / NE-TID (teachers), retained as internal staff IDs.
     staff_identifier: Mapped[str | None] = mapped_column(String(30), unique=True)
+    # Argon2 hash of the Staff-ID + PIN login secret (refinement 2).
+    staff_pin_hash: Mapped[str | None] = mapped_column(String(255))
+    # Department heads are teaching staff with extra syllabus authority
+    # (topic logging and plan edits for their department) — refinement 1.
+    is_department_head: Mapped[bool] = mapped_column(Boolean, default=False)
     phone: Mapped[str | None] = mapped_column(String(50))
     qualifications: Mapped[str | None] = mapped_column(Text)
     designation: Mapped[str | None] = mapped_column(String(100))

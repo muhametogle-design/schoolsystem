@@ -4,7 +4,12 @@
  * No charting dependency and no icon set: bars, fills and a single SVG
  * polyline cover the KPI cards, distribution charts and trends the brief asks
  * for, and they print cleanly for the report card.
+ *
+ * Module 3 (Data Saver): when the low-bandwidth mode is active, every graphic
+ * chart renders as raw text metrics instead — no SVG, no gradient paint.
  */
+
+import { useDataSaver } from '../hooks/useDataSaver';
 
 export function KpiCard({ label, value, hint, tone = 'neutral' }) {
   return (
@@ -18,7 +23,23 @@ export function KpiCard({ label, value, hint, tone = 'neutral' }) {
 
 /** Horizontal bars: label, bar, value. Used for distributions and rosters. */
 export function BarList({ items, max, unit = '' }) {
+  const saver = useDataSaver();
   const ceiling = max ?? Math.max(1, ...items.map((i) => i.value ?? 0));
+  if (saver) {
+    return (
+      <ul className="metrics-table" role="table" aria-label="Metric summary">
+        {items.map((item) => (
+          <li key={item.label} className="metrics-table__row">
+            <span className="metrics-table__label">{item.label}</span>
+            <strong className="metrics-table__value mono">
+              {item.value ?? 0}
+              {unit}
+            </strong>
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
     <ul className="bar-list">
       {items.map((item) => {
@@ -47,8 +68,30 @@ export function BarList({ items, max, unit = '' }) {
 
 /** Vertical daily trend rendered as an SVG polyline over a bar column set. */
 export function TrendChart({ points, height = 140, targetLabel = 'Attendance %' }) {
+  const saver = useDataSaver();
   if (!points || points.length === 0) {
     return <p className="empty">No attendance recorded in this window.</p>;
+  }
+
+  if (saver) {
+    // Raw text metrics: one line per data point, no SVG is mounted at all.
+    const average = Math.round(points.reduce((acc, p) => acc + (p.value ?? 0), 0) / points.length);
+    return (
+      <div className="metrics-table metrics-table--trend" role="table" aria-label={targetLabel}>
+        <p className="metrics-table__summary">
+          <span>{targetLabel}</span>
+          <strong className="mono">avg {average}% · min {Math.min(...points.map((p) => p.value ?? 0))}% · max {Math.max(...points.map((p) => p.value ?? 0))}%</strong>
+        </p>
+        <ul>
+          {points.map((p) => (
+            <li key={p.label}>
+              <span>{p.label}</span>
+              <strong className="mono">{p.value ?? 0}%</strong>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
   }
 
   const width = 620;
@@ -129,8 +172,23 @@ export function TrendChart({ points, height = 140, targetLabel = 'Attendance %' 
 
 /** Segmented single-bar composition, e.g. the tuition status mix. */
 export function StackedBar({ segments, total }) {
+  const saver = useDataSaver();
   const computed = segments.reduce((acc, s) => acc + s.value, 0);
   const sum = total ?? (computed || 1);
+  if (saver) {
+    return (
+      <ul className="metrics-table" role="table" aria-label="Composition breakdown">
+        {segments.map((s) => (
+          <li key={s.label} className="metrics-table__row">
+            <span className="metrics-table__label">{s.label}</span>
+            <strong className="metrics-table__value mono">
+              {s.value} ({Math.round((s.value / sum) * 100)}%)
+            </strong>
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
     <div className="stacked">
       <div className="stacked__bar">

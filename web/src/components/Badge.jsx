@@ -26,6 +26,38 @@ const TONE_BY_STATUS = {
   // Publication valve
   PUBLISHED: 'ok',
   DRAFT: 'muted',
+
+  // Syllabus tracker
+  'On Track': 'ok',
+  Ahead: 'info',
+  'Behind Schedule': 'danger',
+
+  // Substitution engine
+  covered: 'ok',
+  logged: 'warn',
+  cancelled: 'muted',
+  open: 'warn',
+  confirmed: 'ok',
+  completed: 'ok',
+
+  // Biometrics
+  Enrolled: 'ok',
+  'Not enrolled': 'muted',
+  Revoked: 'danger',
+  success: 'ok',
+  failed: 'danger',
+  revoked_credential: 'danger',
+  unknown_credential: 'danger',
+
+  // Backups
+  completed: 'ok',
+  SNAPSHOT: 'info',
+  DELTA: 'muted',
+  created: 'info',
+  verified: 'ok',
+  verify_failed: 'danger',
+  downloaded: 'info',
+  purged: 'muted',
 };
 
 export default function Badge({ status, tone, children, title }) {

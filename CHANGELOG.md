@@ -4,6 +4,77 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-09-01
+
+### Added — Manager syllabus administration & subject-restricted teacher portals
+
+- **Editable Syllabus Tracker (School Manager)**: full plan CRUD — edit unit
+  totals, midterm/final target percentages, term start/midterm/term-end
+  deadlines; delete plans (cascades to topics and history); per-topic CRUD on
+  the national-curriculum list (`syllabus_topics`); **Log Topic Covered**
+  checklist for Managers and Department Heads that ticks exact units and
+  writes the audited checkpoint; un-tick (undo) re-derives the checkpoint;
+  managers can delete erroneous progress entries to override stats.
+- **Teacher Authentication & RBAC**: dual-credential login —
+  `{email,password}` **or** `{staff_identifier,pin}` (Argon2-hashed
+  `staff_pin_hash`, uniform `401` on any failure). Teachers land on the
+  restricted **My teaching day** dashboard (`/school/portal`); the sidebar for
+  teachers exposes only that page. `is_department_head` flag shipped on user
+  payloads.
+- **Subject-Restricted Attendance Marking Engine**: `/teachers/me/schedule`
+  returns the signed-in teacher's own slots for a date with active-period
+  detection (08:00–16:50, eight periods) and pending-register counts;
+  `/teachers/me/roster` GET/POST upserts `subject_attendance`
+  (unique student+date+subject+period; Present/Absent/Late/Excused) but only
+  when the timetable slot binds the same teacher+class+subject+period —
+  otherwise `403`. Legacy attendance endpoints gained matching guards for
+  teaching staff.
+
+### Changed
+
+- `POST /api/auth/login` accepts both credential styles; `/api/auth/me` and
+  login payloads now include `is_department_head` and `staff_identifier`.
+- Login screen offers an *Email & password* / *Staff ID & PIN* tab pair.
+
+## [2.0.0] — 2026-08-31
+
+### Added — Production modules
+
+- **Module 1 — Teacher Absence & Substitution Engine**: weekly
+  `timetable_slots` grid with class/teacher double-booking constraints,
+  `teacher_absences` + `substitution_assignments` workflow, real-time ranked
+  coverage recommendations (subject specialization, department
+  qualifications, free period slots), one-click auto-cover, and
+  `absence_logged` / `substitution_assigned` WebSocket events.
+- **Module 2 — Syllabus Completion Tracker (Classes 1-12)**:
+  `syllabus_plans` with midterm/final benchmark gates per class and subject,
+  audited `syllabus_progress_entries` checkpoints, pace engine
+  (start/midterm/end interpolation) driving `On Track` / `Ahead` /
+  `Behind Schedule` status tags, and a Classes 1-12 tracking board.
+- **Module 3 — Low-bandwidth Data Saver mode**: global off/auto/on toggle
+  following the Network Information API (Save-Data, 2G/3G), `data-saver` CSS
+  layer that strips animations/gradients/shadows and raises typographic
+  contrast, chart primitives replaced by raw text metric tables, and
+  `X-Data-Saver` request signalling.
+- **Module 4 — Automated encrypted midnight backups**: SQLite change-capture
+  triggers feeding `data_change_log` (PostgreSQL equivalents in
+  `sql/004_ops_modules.sql`), 00:00 scheduler producing online SQLite
+  snapshots and JSON deltas chained from the last snapshot, AES-256-GCM
+  sealing (scrypt-derived keys, `NESBK1` container), SHA-256 + MD5 digests,
+  integrity verification, audited downloads, retention purge, and a State-Admin
+  backup console.
+- **Module 5 — Biometric hardware management**: self-contained WebAuthn
+  implementation (CBOR decoder, ES256/RS256 verification, origin/RP-ID/UV and
+  clone-detection checks), credential lifecycle (enroll, revoke, re-scan),
+  exam-hall-entry and staff-attendance verification registers with
+  timestamps, and a QA simulated reader for hardware-free environments.
+
+### Changed
+- Seeded schools now carry subject-specialist teachers, a conflict-free
+  two-periods-per-day timetable, Class 1-12 syllabus plans, and demo
+  biometric verification history.
+- `cryptography` added to the runtime dependencies (AES-256-GCM + ECDSA).
+
 ## [1.0.0] — 2026-08-29
 
 ### Added — Initial release

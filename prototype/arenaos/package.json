@@ -1,0 +1,32 @@
+{
+  "name": "arenaos-prototype",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Standalone mock prototype (ArenaOS) \u2014 Tailwind + mock data. NOT wired to the FastAPI backend.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node tools/make-single-file.mjs",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "serve": "python3 serve.py 8090",
+    "verify": "npm run build && vitest run",
+    "serve:dist": "ARENA_DIR=dist python3 serve.py 8090"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.11",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.6",
+    "@vitejs/plugin-react": "^4.3.1",
+    "jsdom": "^30.0.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^5.4.8",
+    "vitest": "^2.1.9"
+  }
+}

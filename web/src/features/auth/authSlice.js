@@ -11,11 +11,13 @@ import {
 // A cookie-backed session is deliberately supported when a mobile browser or
 // embedded context declines localStorage. The in-memory login state lets that
 // browser enter immediately, while the cookie authorizes subsequent API calls.
-export const login = createAsyncThunk('auth/login', async ({ email, password }) => {
-  const data = await api('/api/auth/login', {
-    method: 'POST',
-    body: { email: email.trim(), password },
-  });
+export const login = createAsyncThunk('auth/login', async ({ email, password, staffIdentifier, pin }) => {
+  // Two credential styles (refinement 2): classic email + password for every
+  // role, or Staff ID + PIN for teaching staff signing in on shared devices.
+  const body = staffIdentifier
+    ? { staff_identifier: staffIdentifier.trim().toUpperCase(), pin }
+    : { email: email.trim(), password };
+  const data = await api('/api/auth/login', { method: 'POST', body });
   setToken(data.access_token);
   setStoredUser(data.user);
   return data.user;
@@ -124,5 +126,7 @@ export const selectIsState = (state) => STATE_ROLES.has(state.auth.user?.role);
 export const selectIsStateAdmin = (state) => state.auth.user?.role === 'state_admin';
 export const selectIsManager = (state) => state.auth.user?.role === 'school_manager';
 export const selectIsTeacher = (state) => state.auth.user?.role === 'teacher';
+export const selectIsDepartmentHead = (state) =>
+  state.auth.user?.role === 'teacher' && state.auth.user?.is_department_head === true;
 
 export default authSlice.reducer;

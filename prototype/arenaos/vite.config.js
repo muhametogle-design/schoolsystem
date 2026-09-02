@@ -1,0 +1,43 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+
+// Standalone prototype: Tailwind is provided by @tailwindcss/vite (v4 zero-config
+// content scanning), so the pasted utility classes render without the SPA build
+// in web/ being touched at all. There is deliberately no /api proxy — this
+// prototype runs entirely on the mock data inside ArenaOS.jsx.
+// Pages serves this folder under /schoolsystem/prototype/; a relative base is
+// right for a local dist/ copy (any host, any depth, even file://). Override with
+// BASE_PATH when the deploy target needs absolute asset URLs.
+const BASE_PATH = process.env.BASE_PATH || './';
+
+export default defineConfig({
+  base: BASE_PATH,
+  plugins: [react(), tailwindcss()],
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    allowedHosts: true,
+  },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    // Relative asset paths so `npm run build` output can be opened from any
+    // host — including `python -m http.server` on Termux, or straight off the
+    // filesystem — without knowing the port or domain in advance.
+    assetsDir: '.',
+    rollupOptions: { output: { entryFileNames: 'app.js', assetFileNames: '[name][extname]' } },
+  },
+  // Behavioural checks for the prototype fixes (src/ArenaOS.test.jsx): a real
+  // render in jsdom, not a snapshot of markup. Vite's transform pipeline is
+  // reused, so there is no separate test bundler config to keep in sync.
+  test: {
+    environment: 'jsdom',
+    css: false,
+    // globals lets @testing-library/react auto-run its cleanup hook; without it every
+    // render in the file piles up in the same jsdom document and queries find
+    // the previous test's login form.
+    globals: true,
+    setupFiles: ['./src/setup-tests.js'],
+  },
+});

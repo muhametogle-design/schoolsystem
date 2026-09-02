@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "dev-only-secret-rotate-me-in-production"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
+    # NOTE: app/core/ratelimit.py builds its `login_throttle` singleton at import
+    # time with the same defaults and does not read these two fields, so overriding
+    # LOGIN_RATE_LIMIT / LOGIN_RATE_WINDOW_SECONDS in .env has no effect today.
+    # Keep the values in sync with that singleton (or wire settings into it) before
+    # advertising them as tunable.
     login_rate_limit: int = 5          # failed attempts allowed per window
     login_rate_window_seconds: int = 900
 
@@ -38,6 +43,24 @@ class Settings(BaseSettings):
     # --- Behaviour flags ---
     auto_seed_demo: bool = True          # seed demo data when the DB comes up empty
     enable_scheduler: bool = True        # run the 15:00 worker loop in-process
+
+    # --- Module 4: encrypted midnight backups ---
+    backup_time: str = "00:00"           # daily export window (platform timezone)
+    backup_dir: str = "data/backups"     # artefacts land here (gitignored)
+    backup_retention_days: int = 30      # older completed artefacts are purged
+    enable_backup_scheduler: bool = True  # arm the midnight worker loop
+    # Passphrase for AES-256-GCM backup encryption. When empty, a key is
+    # derived from JWT_SECRET_KEY with a domain-separated KDF (demo tier only —
+    # production deployments MUST set a dedicated key).
+    backup_encryption_key: str = ""
+
+    # --- Module 5: WebAuthn / biometric hardware ---
+    # "auto" resolves the Relying Party ID and expected origin from the
+    # request host at runtime (localhost + preview hosts work unmodified).
+    # Pin them (e.g. WEBAUTHN_RP_ID=school.example, WEBAUTHN_EXPECTED_ORIGINS=
+    # "https://school.example") for production.
+    webauthn_rp_id: str = "auto"
+    webauthn_expected_origins_raw: str = "auto"
 
     # --- Session cookie (fallback when the Authorization header is stripped) ---
     # Normal same-site deployments want "lax". Embedded/preview contexts
@@ -60,6 +83,13 @@ class Settings(BaseSettings):
         """Normalised SameSite value, falling back to 'lax' on anything invalid."""
         value = (self.cookie_samesite or "lax").strip().lower()
         return value if value in {"lax", "strict", "none"} else "lax"
+
+    @property
+    def webauthn_expected_origins(self) -> list[str]:
+        raw = (self.webauthn_expected_origins_raw or "auto").strip()
+        if raw.lower() == "auto" or not raw:
+            return ["auto"]
+        return [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
 
     def resolve_cookie_secure(self, request_scheme: str) -> bool:
         """Resolve the Secure flag.

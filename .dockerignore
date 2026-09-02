@@ -12,3 +12,7 @@ web/node_modules
 web/dist
 tests/_test_schoolsystem.db*
 .env
+
+# Standalone mock prototype (see prototype/arenaos/README.md) — never shipped
+prototype/node_modules
+prototype/dist
