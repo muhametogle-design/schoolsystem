@@ -58,8 +58,8 @@ export default function Login() {
     <div className="auth">
       <section className="auth__pane">
         <div className="auth__brand"><Logo size={54} /></div>
-        <h1 className="auth__title">Sign in to NE-EMIS</h1>
-        <p className="auth__lede">North-East Education Management Information System — school administration and state academic oversight.</p>
+        <h1 className="auth__title">Sign in to Educta Matrix</h1>
+        <p className="auth__lede">The Unified Operating System for Regional Education — school administration, state telemetry, and student access.</p>
         <form className="form" onSubmit={submit}>
           <label className="field"><span className="field__label">Email address</span><input className="input" type="email" value={email} autoComplete="username" onChange={(event) => setEmail(event.target.value)} required /></label>
           <label className="field"><span className="field__label">Password</span><input className="input" type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} required /></label>
@@ -67,6 +67,22 @@ export default function Login() {
           <button type="submit" className="btn btn--primary btn--block" disabled={status === 'loading'}>{status === 'loading' ? 'Signing in…' : 'Sign in'}</button>
         </form>
         <div className="demo">
+          <div style={{ marginBottom: '1rem', padding: '0.75rem', borderRadius: '8px', background: 'rgba(37, 99, 235, 0.08)', border: '1px solid rgba(37, 99, 235, 0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <strong style={{ fontSize: '0.85rem', color: '#2563eb' }}>Educta Direct Portal</strong>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Student results, QR verify & State telemetry</p>
+              </div>
+              <button
+                type="button"
+                className="btn btn--secondary"
+                style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem' }}
+                onClick={() => navigate('/direct')}
+              >
+                Launch Direct
+              </button>
+            </div>
+          </div>
           <h2 className="demo__title">Initial local accounts</h2>
           <ul className="demo__list">{DEMO_ACCOUNTS.map((account) => <li key={account.email}><button type="button" className="demo__item" onClick={() => useDemo(account)}><span className="demo__role">{account.role}</span><span className="demo__email">{account.email}</span><span className="demo__note">{account.note}</span></button></li>)}</ul>
         </div>

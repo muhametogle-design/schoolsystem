@@ -43,7 +43,7 @@ export default function Layout({ portal }) {
   return (
     <div className={`shell shell--${portal}`}>
       <aside className="sidebar">
-        <div className="sidebar__brand"><Logo size={38} subtitle={isState ? 'Regional State Authority' : undefined} /></div>
+        <div className="sidebar__brand"><Logo size={38} subtitle={isState ? 'Educta State Portal' : 'Educta School ERP'} /></div>
         <nav className="sidebar__nav" aria-label="Primary navigation">
           {nav.map((item) => <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `navlink ${isActive ? 'is-active' : ''}`}>{item.label}</NavLink>)}
         </nav>

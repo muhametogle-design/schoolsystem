@@ -14,8 +14,8 @@ import Teachers from './pages/Teachers';
 import Billing from './pages/Billing';
 import StateDashboard from './pages/StateDashboard';
 import InstitutionOverview from './pages/InstitutionOverview';
-import SchoolDirectory from './pages/SchoolDirectory';
 import StudentLookup from './pages/StudentLookup';
+import EductaMatrixApp from './pages/EductaMatrixApp';
 
 const STATE_ROLES = new Set(['state_admin', 'inspector', 'state_inspector']);
 const isStateUser = (user) => STATE_ROLES.has(user?.role);
@@ -67,14 +67,13 @@ export default function App() {
     dispatch(clearError());
   }, [dispatch]);
 
-  if (!bootstrapped) {
-    return <div className="boot"><span className="boot__label">Verifying session…</span></div>;
-  }
-
-  const landing = isStateUser(user) ? '/state' : '/school';
+  // When on standalone portal routes, render immediately without blocking on auth probe
   return (
     <Routes>
-      <Route path="/" element={user ? <Navigate to={landing} replace /> : <Login />} />
+      <Route path="/" element={<EductaMatrixApp />} />
+      <Route path="/direct" element={<EductaMatrixApp />} />
+      <Route path="/matrix" element={<EductaMatrixApp />} />
+      <Route path="/login" element={user ? <Navigate to={isStateUser(user) ? '/state' : '/school'} replace /> : <Login />} />
 
       <Route element={<SchoolOnly><Layout portal="school" /></SchoolOnly>}>
         <Route path="/school" element={<SchoolDashboard />} />

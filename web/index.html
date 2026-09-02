@@ -3,12 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b2545" />
+    <meta name="theme-color" content="#0284c7" />
     <meta
       name="description"
-      content="NE-EMIS — North-East Education Management Information System: state compliance monitoring and private school management."
+      content="Educta Matrix — The Unified Operating System for Regional Education: state compliance telemetry, tenant school ERP, and student mobile direct portal."
     />
-    <title>NE-EMIS · Education Management Information System</title>
+    <title>Educta Matrix · The Unified Operating System for Regional Education</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                50: '#f0f9ff',
+                100: '#e0f2fe',
+                500: '#0ea5e9',
+                600: '#0284c7',
+                700: '#0369a1',
+              }
+            }
+          }
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
