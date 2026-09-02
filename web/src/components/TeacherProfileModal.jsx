@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
+import AvatarCard from './AvatarCard';
 
 /**
  * Reusable, keyboard-friendly detailed teaching-profile view. The assignments
  * list is authoritative: it comes from the class/subject/teacher mapping API,
  * not from historical grade entries.
  */
-export default function TeacherProfileModal({ teacher, onClose }) {
+export default function TeacherProfileModal({ teacher, onClose, canEditPhoto = false, onUploadPhoto }) {
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === 'Escape') onClose?.();
@@ -28,17 +29,34 @@ export default function TeacherProfileModal({ teacher, onClose }) {
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="card__head card__head--row">
-          <div>
-            <h2 id="teacher-profile-title" className="card__title">{teacher.name}</h2>
-            <span className="card__hint">
-              {teacher.designation ?? 'Teacher'} · <span className="mono">{teacher.ne_tid ?? teacher.staff_identifier ?? '—'}</span>
-            </span>
+          <div className="profile-head">
+            <AvatarCard
+              name={teacher.name}
+              photoUrl={teacher.photo_url}
+              canEdit={canEditPhoto}
+              onUpload={onUploadPhoto}
+              size={72}
+            />
+            <div>
+              <h2 id="teacher-profile-title" className="card__title">{teacher.name}</h2>
+              <span className="card__hint">
+                {teacher.designation ?? 'Teacher'} · <span className="mono">{teacher.ne_tid ?? teacher.staff_identifier ?? (teacher.restricted ? 'Private' : '—')}</span>
+              </span>
+            </div>
           </div>
           <button type="button" className="btn btn--small" onClick={onClose} aria-label="Close teacher profile">
             Close
           </button>
         </header>
 
+        {teacher.restricted && (
+          <p className="alert alert--muted">
+            Colleague profiles show timetable identity only — contact details, credentials and
+            records are private to each staff member and the school administration.
+          </p>
+        )}
+
+        {!teacher.restricted && (
         <div className="detail-grid">
           <div className="detail-block">
             <h3 className="detail-block__title">Contact</h3>
@@ -59,6 +77,7 @@ export default function TeacherProfileModal({ teacher, onClose }) {
             </div>
           )}
         </div>
+        )}
 
         <section className="teacher-profile-modal__section">
           <h3>Class-specific subject assignments</h3>

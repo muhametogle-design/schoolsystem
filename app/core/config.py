@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,9 +21,21 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/schoolsystem.db"
 
     # --- Auth ---
-    jwt_secret_key: str = "dev-only-secret-rotate-me-in-production"
-    jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 480
+    # Every field accepts both the canonical JWT_* env name and the common
+    # bare name (SECRET_KEY / ALGORITHM), so a mis-named .env never causes a
+    # silent fallback to a different signing key between processes.
+    jwt_secret_key: str = Field(
+        default="dev-only-secret-rotate-me-in-production",
+        validation_alias=AliasChoices("JWT_SECRET_KEY", "SECRET_KEY", "jwt_secret_key"),
+    )
+    jwt_algorithm: str = Field(
+        default="HS256",
+        validation_alias=AliasChoices("JWT_ALGORITHM", "ALGORITHM", "jwt_algorithm"),
+    )
+    access_token_expire_minutes: int = Field(
+        default=480,
+        validation_alias=AliasChoices("ACCESS_TOKEN_EXPIRE_MINUTES", "access_token_expire_minutes"),
+    )
     login_rate_limit: int = 5          # failed attempts allowed per window
     login_rate_window_seconds: int = 900
 

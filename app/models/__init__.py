@@ -17,6 +17,12 @@ from app.models.academics import (
     TeachingAssignment,
 )
 from app.models.base import Base
+from app.models.curriculum import (
+    SYLLABUS_TERMS,
+    SchoolUiConfig,
+    SyllabusPlan,
+    SyllabusTopic,
+)
 from app.models.finance import (
     PAYMENT_STATUSES,
     PaymentTransaction,
@@ -32,6 +38,7 @@ __all__ = [
     "CLASS_LEVELS",
     "FEE_STATUSES",
     "PAYMENT_STATUSES",
+    "SYLLABUS_TERMS",
     "AcademicYear",
     "CommunicationLog",
     "DailySubmissionLog",
@@ -41,11 +48,14 @@ __all__ = [
     "PrivateSchool",
     "SchoolClass",
     "SchoolRollSequence",
+    "SchoolUiConfig",
     "SecurityAuditLog",
     "Student",
     "StudentGrade",
     "StudentInvoice",
     "Subject",
+    "SyllabusPlan",
+    "SyllabusTopic",
     "TeachingAssignment",
     "TuitionRate",
     "User",

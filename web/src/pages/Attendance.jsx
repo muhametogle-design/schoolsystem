@@ -3,6 +3,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import Accordion from '../components/Accordion';
 import Badge from '../components/Badge';
 import StudentForm from '../components/StudentForm';
+import PeriodRoster from '../components/PeriodRoster';
+import { api } from '../api/client';
 import { fetchStudentsByClass, selectClasses } from '../features/students/studentSlice';
 import { fetchSubjects, selectSubjects } from '../features/schools/schoolSlice';
 import {
@@ -16,12 +18,46 @@ import { selectIsTeacher, selectIsManager } from '../features/auth/authSlice';
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 /**
+ * Teacher view: ONLY the class periods assigned in the timetable matrix,
+ * each with its quick Mark Present / Absent / Late roster. The backend
+ * rejects any attempt to reach another teacher's classes.
+ */
+function TeacherAttendance({ date }) {
+  const [schedule, setSchedule] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    api('/api/v1/school/my-schedule')
+      .then(setSchedule)
+      .catch((err) => setError(err.message));
+  }, []);
+
+  if (error) return <p className="alert alert--danger">{error}</p>;
+  if (!schedule) return <p className="empty">Loading your assigned periods…</p>;
+  if (schedule.periods.length === 0) {
+    return <p className="empty">No timetable periods are assigned to you. Contact your School Manager.</p>;
+  }
+
+  return (
+    <div className="accordion-group">
+      {schedule.periods.map((period) => (
+        <Accordion
+          key={`${period.class_id}-${period.subject_id}`}
+          title={`${period.class_label} — ${period.subject_name}`}
+          meta={`${period.student_count} students${period.room_number ? ` · ${period.room_number}` : ''}`}
+        >
+          <PeriodRoster classId={period.class_id} classLevel={period.class_label} date={date} />
+        </Accordion>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Attendance sheet.
  *
- * Structure follows the brief: Class 1-12 accordion -> subject accordion ->
- * student list. Attendance itself is recorded per student per day (the backend
- * roster is class-scoped), so the subject level organises the sheet the way a
- * subject teacher works through it.
+ * Managers: Class 1-12 accordion -> subject accordion -> student list.
+ * Teachers: restricted to their own timetable periods (see TeacherAttendance).
  */
 export default function Attendance() {
   const dispatch = useDispatch();
@@ -96,6 +132,9 @@ export default function Attendance() {
         {notice && <p className="alert alert--ok">{notice}</p>}
         {error && <p className="alert alert--danger">{error}</p>}
 
+        {isTeacher ? (
+          <TeacherAttendance date={date} />
+        ) : (
         <div className="accordion-group">
           {classGroups.map((group) => (
             <Accordion
@@ -105,7 +144,7 @@ export default function Attendance() {
               defaultOpen={openClass === group.class_level}
               onOpen={() => setOpenClass(group.class_level)}
               right={
-                isTeacher && (
+                isManager && (
                   <button
                     type="button"
                     className="btn btn--small"
@@ -130,6 +169,7 @@ export default function Attendance() {
                       title={subject.subject_name}
                       meta={`${group.student_count} students`}
                     >
+                      <div className="table-scroll">
                       <table className="table">
                         <thead>
                           <tr>
@@ -169,6 +209,7 @@ export default function Attendance() {
                           })}
                         </tbody>
                       </table>
+                      </div>
                     </Accordion>
                   ))}
 
@@ -182,6 +223,7 @@ export default function Attendance() {
             </Accordion>
           ))}
         </div>
+        )}
       </section>
 
       {quickAdd && (

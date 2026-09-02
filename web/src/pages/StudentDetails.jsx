@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import Badge from '../components/Badge';
+import AvatarCard from '../components/AvatarCard';
+import { api } from '../api/client';
 import {
   clearNotice,
   fetchStudent,
@@ -10,6 +12,7 @@ import {
 } from '../features/students/studentSlice';
 import { fetchClasses, selectClasses } from '../features/schools/schoolSlice';
 import { selectIsManager, selectIsTeacher } from '../features/auth/authSlice';
+import { selectBlocks } from '../features/design/designSlice';
 
 const FEE_OPTIONS = ['PAID', 'PENDING', 'NOT_PAID', 'SCHOLARSHIP'];
 
@@ -19,10 +22,20 @@ export default function StudentDetails() {
   const student = useSelector(selectSelectedStudent);
   const classes = useSelector(selectClasses);
   const { saving, error, notice } = useSelector((state) => state.students);
-  const canEdit = useSelector(selectIsManager) || useSelector(selectIsTeacher);
+  const isManager = useSelector(selectIsManager);
+  const canEdit = isManager || useSelector(selectIsTeacher);
+  const blocks = useSelector(selectBlocks);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(null);
+
+  const uploadPhoto = async (dataUrl) => {
+    await api(`/api/v1/school/students/${student.ne_sid}/photo`, {
+      method: 'PUT',
+      body: { photo: dataUrl },
+    });
+    dispatch(fetchStudent(neSid));
+  };
 
   useEffect(() => {
     dispatch(fetchStudent(neSid));
@@ -74,9 +87,23 @@ export default function StudentDetails() {
     <div className="stack">
       <section className="card">
         <header className="card__head card__head--row">
-          <div>
-            <h2 className="card__title">{student.full_legal_name}</h2>
-            <span className="card__hint mono">Roll number: {student.roll_number ?? student.ne_sid}</span>
+          <div className="profile-head">
+            <AvatarCard
+              name={student.full_legal_name}
+              photoUrl={student.photo_url}
+              canEdit={isManager}
+              onUpload={uploadPhoto}
+              size={84}
+            />
+            <div>
+              <h2 className="card__title">{student.full_legal_name}</h2>
+              {blocks.biometricsBadge !== false && (
+                <span className="id-badge" title="Student biometric / roll identity">
+                  <span className="id-badge__label">NE-SID</span>
+                  <span className="mono">{student.roll_number ?? student.ne_sid}</span>
+                </span>
+              )}
+            </div>
           </div>
           <div className="toolbar">
             <Link className="btn btn--ghost" to={`/school/students/${student.ne_sid}/report-card`}>
@@ -95,6 +122,7 @@ export default function StudentDetails() {
 
         {!editing ? (
           <div className="detail-grid">
+            {blocks.profileCard !== false && (
             <div className="detail-block">
               <h3 className="detail-block__title">Identity</h3>
               <dl className="detail-list">
@@ -120,6 +148,7 @@ export default function StudentDetails() {
                 </div>
               </dl>
             </div>
+            )}
 
             <div className="detail-block">
               <h3 className="detail-block__title">Enrolment</h3>

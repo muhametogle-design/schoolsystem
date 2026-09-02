@@ -11,10 +11,14 @@ import {
 // A cookie-backed session is deliberately supported when a mobile browser or
 // embedded context declines localStorage. The in-memory login state lets that
 // browser enter immediately, while the cookie authorizes subsequent API calls.
-export const login = createAsyncThunk('auth/login', async ({ email, password }) => {
+// Credentials: { email, password } OR { staff_id, password } (Staff ID + PIN).
+export const login = createAsyncThunk('auth/login', async ({ email, staffId, password }) => {
+  const body = staffId
+    ? { staff_id: staffId.trim(), password }
+    : { email: (email ?? '').trim(), password };
   const data = await api('/api/auth/login', {
     method: 'POST',
-    body: { email: email.trim(), password },
+    body,
   });
   setToken(data.access_token);
   setStoredUser(data.user);

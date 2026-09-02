@@ -168,10 +168,19 @@ export default function Teachers() {
                 {teachers.map((teacher) => (
                   <tr key={teacher.id}>
                     <td>
-                      <button type="button" className="link-button" onClick={() => openTeacher(teacher.id)}>{teacher.name}</button>
-                      <br /><span className="muted">{teacher.designation ?? 'Teacher'}</span>
+                      <span className="teacher-cell">
+                        <span className="avatar avatar--xs">
+                          {teacher.photo_url
+                            ? <img className="avatar__img" src={teacher.photo_url} alt="" />
+                            : <span className="avatar__initials">{(teacher.name ?? '?').split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('')}</span>}
+                        </span>
+                        <span>
+                          <button type="button" className="link-button" onClick={() => openTeacher(teacher.id)}>{teacher.name}</button>
+                          <br /><span className="muted">{teacher.designation ?? 'Teacher'}</span>
+                        </span>
+                      </span>
                     </td>
-                    <td className="mono">{teacher.ne_tid ?? teacher.staff_identifier ?? '—'}</td>
+                    <td className="mono">{teacher.ne_tid ?? teacher.staff_identifier ?? (teacher.restricted ? '🔒' : '—')}</td>
                     <td>{teacher.assignment_count ?? teacher.assignments?.length ?? 0} class-subject slots</td>
                     <td><span className={teacher.is_active ? 'status-dot status-dot--ok' : 'status-dot status-dot--muted'}>{teacher.is_active ? 'Active' : 'Inactive'}</span></td>
                     {isManager && <td className="table__actions"><button type="button" className="btn btn--small" onClick={() => beginEdit(teacher)}>Edit</button>{' '}<button type="button" className="btn btn--small btn--danger" onClick={() => removeTeacher(teacher)}>Remove</button></td>}
@@ -183,7 +192,20 @@ export default function Teachers() {
         )}
       </section>
 
-      <TeacherProfileModal teacher={selectedTeacher} onClose={() => setSelectedTeacher(null)} />
+      <TeacherProfileModal
+        teacher={selectedTeacher}
+        onClose={() => setSelectedTeacher(null)}
+        canEditPhoto={isManager}
+        onUploadPhoto={async (dataUrl) => {
+          await api(`/api/v1/school/teachers/${selectedTeacher.id}/photo`, {
+            method: 'PUT',
+            body: { photo: dataUrl },
+          });
+          const refreshed = await api(`/api/v1/school/teachers/${selectedTeacher.id}`);
+          setSelectedTeacher(refreshed.teacher);
+          await load();
+        }}
+      />
     </div>
   );
 }

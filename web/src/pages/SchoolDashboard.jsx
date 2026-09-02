@@ -12,6 +12,7 @@ import {
 } from '../features/schools/schoolSlice';
 import { fetchAttendanceTrend, selectAttendanceTrend } from '../features/attendance/attendanceSlice';
 import { selectIsManager } from '../features/auth/authSlice';
+import { selectBlocks } from '../features/design/designSlice';
 
 const FEE_COLOURS = {
   PAID: '#1e8449',
@@ -27,6 +28,7 @@ export default function SchoolDashboard() {
   const performance = useSelector(selectPerformance);
   const trend = useSelector(selectAttendanceTrend);
   const isManager = useSelector(selectIsManager);
+  const blocks = useSelector(selectBlocks);
 
   useEffect(() => {
     dispatch(fetchKpis());
@@ -78,6 +80,7 @@ export default function SchoolDashboard() {
       </section>
 
       <div className="grid grid--2">
+        {blocks.attendanceSummary !== false && (
         <section className="card">
           <header className="card__head">
             <h2 className="card__title">Attendance Trend</h2>
@@ -90,7 +93,9 @@ export default function SchoolDashboard() {
             }))}
           />
         </section>
+        )}
 
+        {blocks.academicOverview !== false && (
         <section className="card">
           <header className="card__head">
             <h2 className="card__title">Academic Performance</h2>
@@ -105,9 +110,11 @@ export default function SchoolDashboard() {
             unit=""
           />
         </section>
+        )}
       </div>
 
       <div className="grid grid--2">
+        {blocks.academicOverview !== false && (
         <section className="card">
           <header className="card__head">
             <h2 className="card__title">Subject Averages</h2>
@@ -121,6 +128,7 @@ export default function SchoolDashboard() {
             max={100}
           />
         </section>
+        )}
 
         <section className="card">
           <header className="card__head">

@@ -37,19 +37,23 @@ export default function Login() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { status, error } = useSelector((state) => state.auth);
+  const [mode, setMode] = useState('email'); // 'email' | 'staff'
   const [email, setEmail] = useState('stateadmin@education.gov');
+  const [staffId, setStaffId] = useState('');
   const [password, setPassword] = useState('StateAdmin@2026');
 
   const submit = async (event) => {
     event.preventDefault();
     dispatch(clearError());
-    const result = await dispatch(login({ email, password }));
+    const credentials = mode === 'staff' ? { staffId, password } : { email, password };
+    const result = await dispatch(login(credentials));
     if (login.fulfilled.match(result)) {
       navigate(STATE_ROLES.has(result.payload.role) ? '/state' : '/school', { replace: true });
     }
   };
 
   const useDemo = (account) => {
+    setMode('email');
     setEmail(account.email);
     setPassword(account.password);
   };
@@ -60,12 +64,23 @@ export default function Login() {
         <div className="auth__brand"><Logo size={54} /></div>
         <h1 className="auth__title">Sign in to NE-EMIS</h1>
         <p className="auth__lede">North-East Education Management Information System — school administration and state academic oversight.</p>
+        <div className="auth__modes" role="tablist" aria-label="Sign-in method">
+          <button type="button" role="tab" aria-selected={mode === 'email'} className={`auth__mode ${mode === 'email' ? 'is-active' : ''}`} onClick={() => setMode('email')}>Email &amp; password</button>
+          <button type="button" role="tab" aria-selected={mode === 'staff'} className={`auth__mode ${mode === 'staff' ? 'is-active' : ''}`} onClick={() => setMode('staff')}>Staff ID + PIN</button>
+        </div>
         <form className="form" onSubmit={submit}>
-          <label className="field"><span className="field__label">Email address</span><input className="input" type="email" value={email} autoComplete="username" onChange={(event) => setEmail(event.target.value)} required /></label>
-          <label className="field"><span className="field__label">Password</span><input className="input" type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} required /></label>
+          {mode === 'email' ? (
+            <label className="field"><span className="field__label">Email address</span><input className="input" type="email" value={email} autoComplete="username" onChange={(event) => setEmail(event.target.value)} required /></label>
+          ) : (
+            <label className="field"><span className="field__label">Staff ID</span><input className="input" type="text" value={staffId} placeholder="e.g. NE-TID-2026-0042" autoComplete="username" onChange={(event) => setStaffId(event.target.value)} required /></label>
+          )}
+          <label className="field"><span className="field__label">{mode === 'staff' ? 'PIN / Password' : 'Password'}</span><input className="input" type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} required /></label>
           {error && <p className="alert alert--danger">{error}</p>}
           <button type="submit" className="btn btn--primary btn--block" disabled={status === 'loading'}>{status === 'loading' ? 'Signing in…' : 'Sign in'}</button>
         </form>
+        {mode === 'staff' && (
+          <p className="auth__footnote">Teaching staff can sign in with the Staff ID printed on their NE-TID card. Your School Manager can look it up under Teachers.</p>
+        )}
         <div className="demo">
           <h2 className="demo__title">Initial local accounts</h2>
           <ul className="demo__list">{DEMO_ACCOUNTS.map((account) => <li key={account.email}><button type="button" className="demo__item" onClick={() => useDemo(account)}><span className="demo__role">{account.role}</span><span className="demo__email">{account.email}</span><span className="demo__note">{account.note}</span></button></li>)}</ul>

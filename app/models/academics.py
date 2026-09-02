@@ -91,6 +91,8 @@ class Student(Base):
     physical_address: Mapped[str | None] = mapped_column(Text)
     #: PAID | PENDING | NOT_PAID | SCHOLARSHIP — drives the fee collection matrix.
     fee_status: Mapped[str] = mapped_column(String(20), default="NOT_PAID", nullable=False)
+    #: Profile photo as a data-URL (or CDN URL). Uploads are manager-gated.
+    photo_url: Mapped[str | None] = mapped_column(Text)
     enrollment_date: Mapped[dt.date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())

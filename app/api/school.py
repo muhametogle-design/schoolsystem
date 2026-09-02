@@ -27,6 +27,7 @@ from app.models import (
     Student,
     StudentGrade,
     Subject,
+    TeachingAssignment,
     User,
 )
 from app.schemas import (
@@ -60,6 +61,39 @@ def _class_sort_key(klass: SchoolClass) -> tuple[int, str, int]:
     except (AttributeError, ValueError):
         level_number = len(CLASS_LEVELS) + 1
     return (level_number, (klass.class_stream or "").casefold(), klass.id)
+
+
+# --------------------------------------------------------------------------- #
+# Timetable-matrix attendance authority
+# --------------------------------------------------------------------------- #
+def _assigned_class_ids(db: Session, user: User) -> set[int]:
+    """Classes this teacher is scheduled to teach (the timetable matrix)."""
+    rows = (
+        db.query(TeachingAssignment.class_id)
+        .filter(
+            TeachingAssignment.school_id == user.school_id,
+            TeachingAssignment.teacher_id == user.id,
+        )
+        .distinct()
+        .all()
+    )
+    return {row[0] for row in rows}
+
+
+def _require_attendance_authority(db: Session, user: User, class_id: int) -> None:
+    """Teachers may only touch rosters for classes assigned to them.
+
+    School Managers retain full authority. Violations return 403 so a teacher
+    can never read or modify another staff member's class registers.
+    """
+    if user.role != "teacher":
+        return
+    if class_id not in _assigned_class_ids(db, user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Attendance is restricted to the classes and subjects assigned to you "
+            "in the timetable. Contact your School Manager if your schedule changed.",
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -286,6 +320,7 @@ def get_attendance(
     db: Session = Depends(get_db),
 ):
     date = date or dt.date.today()
+    _require_attendance_authority(db, user, class_id)
     rows = (
         db.query(LiveAttendance)
         .filter_by(school_id=user.school_id, class_id=class_id, date=date)
@@ -300,6 +335,7 @@ def record_attendance(payload: AttendanceBulkRequest, user: User = Depends(erp_w
     klass = db.query(SchoolClass).filter_by(id=payload.class_id, school_id=user.school_id).one_or_none()
     if not klass:
         raise HTTPException(404, "Class not found in this school")
+    _require_attendance_authority(db, user, klass.id)
 
     valid_ids = {
         s.id
@@ -528,4 +564,63 @@ def own_exam_events(user: User = Depends(any_school_user), db: Session = Depends
             }
             for e in rows
         ]
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Teacher timetable — the logged-in user's own schedule + roster context
+# --------------------------------------------------------------------------- #
+@router.get("/my-schedule")
+def my_schedule(user: User = Depends(any_school_user), db: Session = Depends(get_db)):
+    """The signed-in staff member's active subject schedule.
+
+    Teachers see exactly the class/subject periods assigned to them in the
+    timetable matrix (their attendance-marking authority). Managers receive
+    the full school matrix so the same screen can supervise coverage.
+    """
+    query = (
+        db.query(TeachingAssignment, SchoolClass, Subject)
+        .join(SchoolClass, TeachingAssignment.class_id == SchoolClass.id)
+        .join(Subject, TeachingAssignment.subject_id == Subject.id)
+        .filter(TeachingAssignment.school_id == user.school_id)
+    )
+    if user.role == "teacher":
+        query = query.filter(TeachingAssignment.teacher_id == user.id)
+    rows = query.all()
+    rows.sort(key=lambda row: (_class_sort_key(row[1]), row[2].subject_name.casefold()))
+
+    class_ids = {klass.id for _, klass, _ in rows}
+    student_counts = {
+        class_id: db.query(Student)
+        .filter_by(school_id=user.school_id, current_class_id=class_id, is_active=True)
+        .count()
+        for class_id in class_ids
+    }
+    today = dt.date.today()
+    marked_today = {
+        class_id: db.query(LiveAttendance)
+        .filter_by(school_id=user.school_id, class_id=class_id, date=today)
+        .count()
+        for class_id in class_ids
+    }
+    return {
+        "role": user.role,
+        "date": today.isoformat(),
+        "attendance_deadline": settings.attendance_deadline,
+        "periods": [
+            {
+                "assignment_id": assignment.id,
+                "class_id": klass.id,
+                "class_label": _class_label(klass),
+                "class_level": klass.class_level,
+                "class_stream": klass.class_stream,
+                "room_number": klass.room_number,
+                "subject_id": subject.id,
+                "subject_name": subject.subject_name,
+                "subject_code": subject.subject_code,
+                "student_count": student_counts.get(klass.id, 0),
+                "marked_today": marked_today.get(klass.id, 0),
+            }
+            for assignment, klass, subject in rows
+        ],
     }
