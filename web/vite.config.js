@@ -9,6 +9,9 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    // Hosted previews / tunnels reach the dev server through arbitrary
+    // proxy hostnames — allow them (dev-only server, API auth still applies).
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

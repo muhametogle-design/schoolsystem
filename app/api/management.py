@@ -18,14 +18,24 @@ from app.api.deps import require_school
 from app.core.db import get_db
 from app.core.security import hash_password
 from app.core.ws import manager as websocket_manager
-from app.models import PrivateSchool, SchoolClass, Student, Subject, TeachingAssignment, User
+from app.models import (
+    PrivateSchool,
+    SchoolClass,
+    SchoolUiConfig,
+    Student,
+    Subject,
+    TeachingAssignment,
+    User,
+)
 from app.schemas import (
     ClassUpdate,
+    PhotoUploadRequest,
     SchoolProfileUpdate,
     SubjectUpdate,
     TeacherCreate,
     TeacherUpdate,
     TeachingAssignmentUpdate,
+    UiConfigPayload,
 )
 from app.services.school_template import CORE_SUBJECTS, class_sort_key, mandatory_subjects_for_level
 from app.services.student_id import generate_unique_staff_identifier
@@ -94,6 +104,7 @@ def teacher_payload(db: Session, teacher: User, *, include_assignments: bool = T
         "qualifications": teacher.qualifications,
         "designation": teacher.designation,
         "bio": teacher.bio,
+        "photo_url": teacher.photo_url,
         "is_active": bool(teacher.is_active),
         "assignment_count": len(assignments),
         "assignments": assignments,
@@ -118,6 +129,27 @@ def teacher_payload(db: Session, teacher: User, *, include_assignments: bool = T
             }
             for klass in homerooms
         ],
+    }
+
+
+def _directory_teacher_payload(db: Session, teacher: User) -> dict:
+    """Colleague-visible directory entry: timetable identity ONLY.
+
+    No email, phone, staff credentials, qualifications, bio, payroll or any
+    other personal record — teachers cannot inspect each other's files.
+    """
+    assignments = _teacher_assignments(db, teacher.id, teacher.school_id)
+    return {
+        "id": teacher.id,
+        "name": _full_name(teacher),
+        "first_name": teacher.first_name,
+        "last_name": teacher.last_name,
+        "designation": teacher.designation,
+        "photo_url": teacher.photo_url,
+        "is_active": bool(teacher.is_active),
+        "assignment_count": len(assignments),
+        "assignments": assignments,
+        "restricted": True,
     }
 
 
@@ -243,12 +275,28 @@ def list_teachers(user: User = Depends(any_school_user), db: Session = Depends(g
     if user.role != "school_manager":
         query = query.filter(User.is_active.is_(True))
     teachers = query.order_by(User.last_name, User.first_name, User.id).all()
-    return {"teachers": [teacher_payload(db, teacher) for teacher in teachers]}
+    if user.role == "school_manager":
+        return {"teachers": [teacher_payload(db, teacher) for teacher in teachers]}
+    # PRIVACY WALL: a teacher sees the public directory (name, designation,
+    # timetable) for colleagues and full detail only for their own record.
+    # Personal contact data, credentials and biography stay manager-private.
+    return {
+        "teachers": [
+            teacher_payload(db, teacher)
+            if teacher.id == user.id
+            else _directory_teacher_payload(db, teacher)
+            for teacher in teachers
+        ]
+    }
 
 
 @router.get("/teachers/{teacher_id}")
 def get_teacher(teacher_id: int, user: User = Depends(any_school_user), db: Session = Depends(get_db)):
-    return {"teacher": teacher_payload(db, _teacher_or_404(db, user.school_id, teacher_id))}
+    teacher = _teacher_or_404(db, user.school_id, teacher_id)
+    if user.role != "school_manager" and teacher.id != user.id:
+        # A teacher may open only their own full profile.
+        return {"teacher": _directory_teacher_payload(db, teacher)}
+    return {"teacher": teacher_payload(db, teacher)}
 
 
 @router.post("/teachers", status_code=status.HTTP_201_CREATED)
@@ -541,3 +589,85 @@ def class_breakdown(class_id: int, user: User = Depends(any_school_user), db: Se
             1 for subject in subjects if subject.id not in assignments or not assignments[subject.id].teacher_id
         ),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Role-gated media management — profile photos (managers/admins only)
+# --------------------------------------------------------------------------- #
+@router.put("/teachers/{teacher_id}/photo")
+def set_teacher_photo(
+    teacher_id: int,
+    payload: PhotoUploadRequest,
+    user: User = Depends(manager_only),
+    db: Session = Depends(get_db),
+):
+    """Upload/replace (or clear with ``photo: null``) a staff profile photo."""
+    teacher = _teacher_or_404(db, user.school_id, teacher_id)
+    teacher.photo_url = payload.photo
+    db.commit()
+    return {"id": teacher.id, "photo_url": teacher.photo_url, "updated": True}
+
+
+# --------------------------------------------------------------------------- #
+# Design & layout configuration — draft lives client-side, this is 'Push Live'
+# --------------------------------------------------------------------------- #
+import json as _json  # noqa: E402  (scoped utility import)
+
+DEFAULT_UI_CONFIG = {
+    "accent": "#2563eb",
+    "font": "sans",
+    "blocks": {
+        "profileCard": True,
+        "academicOverview": True,
+        "attendanceSummary": True,
+        "biometricsBadge": True,
+    },
+}
+
+
+@router.get("/ui-config")
+def get_ui_config(user: User = Depends(any_school_user), db: Session = Depends(get_db)):
+    """Published design system for this tenant (every role reads it)."""
+    row = db.get(SchoolUiConfig, user.school_id)
+    config = dict(DEFAULT_UI_CONFIG)
+    if row:
+        try:
+            stored = _json.loads(row.config or "{}")
+        except ValueError:
+            stored = {}
+        config.update({k: v for k, v in stored.items() if k in DEFAULT_UI_CONFIG})
+        merged_blocks = dict(DEFAULT_UI_CONFIG["blocks"])
+        merged_blocks.update(stored.get("blocks") or {})
+        config["blocks"] = merged_blocks
+    return {
+        "config": config,
+        "published_at": row.updated_at.isoformat() if row and row.updated_at else None,
+        "can_publish": user.role == "school_manager",
+    }
+
+
+@router.put("/ui-config")
+def publish_ui_config(
+    payload: UiConfigPayload,
+    user: User = Depends(manager_only),
+    db: Session = Depends(get_db),
+):
+    """'Push Live' — sync theme variables and block layout to production."""
+    config = {
+        "accent": payload.accent or DEFAULT_UI_CONFIG["accent"],
+        "font": payload.font or DEFAULT_UI_CONFIG["font"],
+        "blocks": {**DEFAULT_UI_CONFIG["blocks"], **payload.blocks},
+    }
+    row = db.get(SchoolUiConfig, user.school_id)
+    if row:
+        row.config = _json.dumps(config)
+        row.published_by = user.id
+    else:
+        db.add(
+            SchoolUiConfig(
+                school_id=user.school_id, config=_json.dumps(config), published_by=user.id
+            )
+        )
+    db.commit()
+    websocket_manager.broadcast_sync("ui_config_published", {"school_id": user.school_id})
+    return {"config": config, "published": True}

@@ -95,6 +95,8 @@ class User(Base):
     qualifications: Mapped[str | None] = mapped_column(Text)
     designation: Mapped[str | None] = mapped_column(String(100))
     bio: Mapped[str | None] = mapped_column(Text)
+    #: Profile photo as a data-URL (or CDN URL). Uploads are manager-gated.
+    photo_url: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     created_at: Mapped[dt.datetime | None] = mapped_column(DateTime, server_default=func.now())

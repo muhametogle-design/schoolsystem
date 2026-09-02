@@ -26,7 +26,7 @@ from app.models import (
     Subject,
     User,
 )
-from app.schemas import StudentCreate, StudentUpdate
+from app.schemas import PhotoUploadRequest, StudentCreate, StudentUpdate
 from app.services.student_id import generate_school_roll_number
 
 router = APIRouter(prefix="/api/v1/school", tags=["students"])
@@ -71,6 +71,7 @@ def _profile(student: Student) -> dict:
         "class_level": klass.class_level if klass else None,
         "physical_address": student.physical_address,
         "fee_status": student.fee_status,
+        "photo_url": student.photo_url,
         "enrollment_date": student.enrollment_date.isoformat() if student.enrollment_date else None,
         "is_active": student.is_active,
         "guardian": {
@@ -398,3 +399,23 @@ def _letter_grade(score: float) -> str:
 
 def _grade_points(score: float) -> float:
     return {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}[_letter_grade(score)]
+
+
+# --------------------------------------------------------------------------- #
+# Role-gated media management — student profile photo (managers/admins only)
+# --------------------------------------------------------------------------- #
+@router.put("/students/{ne_sid}/photo")
+def set_student_photo(
+    ne_sid: str,
+    payload: PhotoUploadRequest,
+    user: User = Depends(manager_only),
+    db: Session = Depends(get_db),
+):
+    """Upload/replace (or clear with ``photo: null``) a student profile photo.
+
+    Strictly manager-gated: teachers and students see a read-only avatar.
+    """
+    student = _scoped_student(ne_sid, user, db)
+    student.photo_url = payload.photo
+    db.commit()
+    return {"ne_sid": student.national_student_id, "photo_url": student.photo_url, "updated": True}

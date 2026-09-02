@@ -31,6 +31,7 @@ from app.api import (
     state_management,
     state_oversight,
     students,
+    syllabus,
     ws,
 )
 from app.core.config import settings
@@ -139,6 +140,7 @@ app.include_router(auth.router)
 app.include_router(state.router)
 app.include_router(state_management.router)
 app.include_router(school.router)
+app.include_router(syllabus.router)
 # Student profiles and manager-only tenant setup are registered after the core
 # ERP routes so fixed routes win over parameterized profile URLs.
 app.include_router(students.router)

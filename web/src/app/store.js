@@ -3,6 +3,7 @@ import authReducer from '../features/auth/authSlice';
 import studentReducer from '../features/students/studentSlice';
 import attendanceReducer from '../features/attendance/attendanceSlice';
 import schoolReducer from '../features/schools/schoolSlice';
+import designReducer from '../features/design/designSlice';
 
 export const store = configureStore({
   reducer: {
@@ -10,5 +11,6 @@ export const store = configureStore({
     students: studentReducer,
     attendance: attendanceReducer,
     schools: schoolReducer,
+    design: designReducer,
   },
 });

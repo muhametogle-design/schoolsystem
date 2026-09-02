@@ -16,6 +16,8 @@ import StateDashboard from './pages/StateDashboard';
 import InstitutionOverview from './pages/InstitutionOverview';
 import SchoolDirectory from './pages/SchoolDirectory';
 import StudentLookup from './pages/StudentLookup';
+import Syllabus from './pages/Syllabus';
+import TeacherDashboard from './pages/TeacherDashboard';
 
 const STATE_ROLES = new Set(['state_admin', 'inspector', 'state_inspector']);
 const isStateUser = (user) => STATE_ROLES.has(user?.role);
@@ -42,6 +44,12 @@ function ManagerOnly({ children }) {
   if (!user) return <Navigate to="/" replace />;
   if (user.role !== 'school_manager') return <Navigate to="/school" replace />;
   return children;
+}
+
+/** Teachers land on their restricted dashboard; managers get the full ERP. */
+function SchoolHome() {
+  const user = useSelector(selectUser);
+  return user?.role === 'teacher' ? <TeacherDashboard /> : <SchoolDashboard />;
 }
 
 export default function App() {
@@ -77,10 +85,11 @@ export default function App() {
       <Route path="/" element={user ? <Navigate to={landing} replace /> : <Login />} />
 
       <Route element={<SchoolOnly><Layout portal="school" /></SchoolOnly>}>
-        <Route path="/school" element={<SchoolDashboard />} />
+        <Route path="/school" element={<SchoolHome />} />
         <Route path="/school/students" element={<Students />} />
         <Route path="/school/students/:neSid" element={<StudentDetails />} />
         <Route path="/school/classes" element={<Classes />} />
+        <Route path="/school/syllabus" element={<Syllabus />} />
         <Route path="/school/teachers" element={<Teachers />} />
         <Route path="/school/attendance" element={<Attendance />} />
         <Route path="/school/billing" element={<ManagerOnly><Billing /></ManagerOnly>} />

@@ -4,13 +4,26 @@ from __future__ import annotations
 
 import datetime as dt
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 # --- Auth ---
 class LoginRequest(BaseModel):
-    email: EmailStr
+    """Email + password (managers/state) or Staff ID + PIN (teaching staff).
+
+    Exactly one identifier is required; ``password`` doubles as the PIN for
+    staff-ID sign-ins.
+    """
+
+    email: EmailStr | None = None
+    staff_id: str | None = Field(default=None, min_length=2, max_length=30)
     password: str
+
+    @model_validator(mode="after")
+    def _one_identifier(self):
+        if not self.email and not self.staff_id:
+            raise ValueError("Provide an email address or a staff ID")
+        return self
 
 
 class UserInfo(BaseModel):
@@ -268,3 +281,78 @@ class PaymentUpdate(BaseModel):
     amount: float | None = Field(default=None, gt=0)
     payment_method: str | None = Field(default=None, pattern="^(Cash|Bank_Transfer|Mobile_Money|Card)$")
     reference_number: str | None = Field(default=None, max_length=100)
+
+
+# --- Syllabus Completion Module (manager-owned CRUD) ---
+class SyllabusTopicCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    unit_code: str | None = Field(default=None, max_length=30)
+    sort_order: int = Field(default=0, ge=0)
+
+
+class SyllabusTopicUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    unit_code: str | None = Field(default=None, max_length=30)
+    sort_order: int | None = Field(default=None, ge=0)
+    is_covered: bool | None = None
+
+
+class SyllabusPlanCreate(BaseModel):
+    class_id: int
+    subject_id: int
+    term_name: str = Field(default="Term 1", pattern="^Term [1-3]$")
+    target_completion_pct: int = Field(default=100, ge=0, le=100)
+    term_deadline: dt.date | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+    topics: list[SyllabusTopicCreate] = Field(default_factory=list, max_length=200)
+
+
+class SyllabusPlanUpdate(BaseModel):
+    term_name: str | None = Field(default=None, pattern="^Term [1-3]$")
+    target_completion_pct: int | None = Field(default=None, ge=0, le=100)
+    term_deadline: dt.date | None = None
+    clear_term_deadline: bool = False
+    progress_override_pct: int | None = Field(default=None, ge=0, le=100)
+    clear_progress_override: bool = False
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class TopicsCoveredRequest(BaseModel):
+    """'Log Topic Covered' modal payload — bulk tick/untick curriculum units."""
+
+    topic_ids: list[int] = Field(min_length=1, max_length=200)
+    covered: bool = True
+
+
+# --- Role-gated media management ---
+class PhotoUploadRequest(BaseModel):
+    """Base64 data-URL image (or null to remove). Manager/admin only."""
+
+    photo: str | None = None
+
+    @field_validator("photo")
+    @classmethod
+    def _validate_photo(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.startswith("data:image/"):
+            raise ValueError("photo must be a data:image/* URL")
+        if len(value) > 900_000:  # ~650 KB binary — keeps the demo DB portable
+            raise ValueError("photo exceeds the 650 KB upload limit")
+        return value
+
+
+# --- Design & layout configuration (Push Live payload) ---
+class UiConfigPayload(BaseModel):
+    accent: str | None = Field(default=None, pattern="^#[0-9a-fA-F]{6}$")
+    font: str | None = Field(default=None, pattern="^(sans|serif|mono)$")
+    blocks: dict[str, bool] = Field(default_factory=dict)
+
+    @field_validator("blocks")
+    @classmethod
+    def _validate_blocks(cls, value: dict[str, bool]) -> dict[str, bool]:
+        allowed = {"profileCard", "academicOverview", "attendanceSummary", "biometricsBadge"}
+        unknown = set(value) - allowed
+        if unknown:
+            raise ValueError(f"Unknown dashboard blocks: {sorted(unknown)}")
+        return value
