@@ -25,6 +25,7 @@ from app.models.finance import (
     TuitionRate,
 )
 from app.models.identity import AcademicYear, PrivateSchool, SchoolRollSequence, User
+from app.models.management import SchoolUiConfig
 from app.models.operations import (
     ABSENCE_STATUSES,
     SUBJECT_ATTENDANCE_STATUSES,
@@ -81,6 +82,7 @@ __all__ = [
     "PrivateSchool",
     "SchoolClass",
     "SchoolRollSequence",
+    "SchoolUiConfig",
     "SecurityAuditLog",
     "Student",
     "StudentGrade",
