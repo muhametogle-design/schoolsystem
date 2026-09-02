@@ -14,14 +14,13 @@ or financial endpoint. Every rejected tenant attempt is audited.
 
 from __future__ import annotations
 
-import jwt as pyjwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session, load_only
 
 from app.core.db import get_db, set_rls_context
-from app.core.security import decode_access_token
+from app.core.security import TokenError, TokenExpiredError, decode_access_token
 from app.models import SecurityAuditLog, User
 
 STATE_ADMIN_ROLE = "state_admin"
@@ -78,8 +77,18 @@ def get_user_from_token(token: str, db: Session) -> User:
     """
     try:
         payload = decode_access_token(token)
-    except pyjwt.PyJWTError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Invalid or expired token: {exc}") from exc
+    except TokenExpiredError as exc:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Session expired — please sign in again",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    except TokenError as exc:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Invalid authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
 
     claimed_user_id, claimed_role, claimed_school_id = _token_context(payload)
     # A verified JWT supplies the narrow temporary context needed to retrieve
@@ -113,7 +122,11 @@ def get_current_user(
 ) -> User:
     token = credentials.credentials if credentials else request.cookies.get(AUTH_COOKIE)
     if not token:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return get_user_from_token(token, db)
 
 

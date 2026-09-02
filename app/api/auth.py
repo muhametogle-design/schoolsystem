@@ -1,8 +1,17 @@
-"""Authentication endpoints."""
+"""Authentication endpoints.
+
+`POST /api/auth/login` is deliberately content-type tolerant: it accepts the
+SPA's JSON body (``{"email", "password"}``) *and* classic form-encoded
+credentials (``username``/``password``), so Swagger's Authorize flow, curl
+form posts, and the React client all hit the same code path instead of a 422.
+`POST /api/auth/token` is the strict OAuth2 password-grant alias.
+"""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,9 +26,45 @@ from app.schemas import LoginRequest, TokenResponse, UserInfo
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
-    email = payload.email.lower()
+async def _extract_credentials(request: Request) -> LoginRequest:
+    """Parse login credentials from JSON or form-encoded bodies.
+
+    JSON:  {"email": ..., "password": ...}
+    Form:  email=...&password=...   or   username=...&password=...  (OAuth2 style)
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
+    try:
+        if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+            form = await request.form()
+            raw = {
+                "email": form.get("email") or form.get("username"),
+                "password": form.get("password"),
+            }
+        else:
+            body = await request.json()
+            raw = {
+                "email": (body or {}).get("email") or (body or {}).get("username"),
+                "password": (body or {}).get("password"),
+            }
+    except Exception as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Send credentials as JSON {email, password} or form fields username/password",
+        ) from exc
+    try:
+        return LoginRequest.model_validate(raw)
+    except ValidationError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "A valid email and a password are required",
+        ) from exc
+
+
+def _login_flow(
+    credentials: LoginRequest, request: Request, response: Response, db: Session
+) -> TokenResponse:
+    """Shared login pipeline: throttle → verify → sign JWT → set cookie."""
+    email = credentials.email.lower()
     login_throttle.check(request, email)
 
     # Login has no JWT yet. The endpoint is the sole trusted pre-auth lookup
@@ -27,7 +72,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     # verification; the context is reset by get_db for every later request.
     set_rls_context(db, school_id=None, role=STATE_ADMIN_ROLE)
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-    if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
+    if not user or not user.is_active or not verify_password(credentials.password, user.password_hash):
         login_throttle.record_failure(request, email)
         # Uniform message: never reveal whether the account exists.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
@@ -69,6 +114,34 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
             school_name=school_name,
         ),
     )
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(
+    request: Request,
+    response: Response,
+    payload: LoginRequest = Depends(_extract_credentials),
+    db: Session = Depends(get_db),
+):
+    """Sign in with JSON ``{email, password}`` or form ``username``/``password``."""
+    return _login_flow(payload, request, response, db)
+
+
+@router.post("/token", response_model=TokenResponse)
+def login_oauth2(
+    request: Request,
+    response: Response,
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    """Strict OAuth2 password-grant alias (Swagger UI Authorize, CLI tools)."""
+    try:
+        credentials = LoginRequest(email=form.username, password=form.password)
+    except ValidationError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "username must be a valid email address"
+        ) from exc
+    return _login_flow(credentials, request, response, db)
 
 
 @router.get("/me", response_model=UserInfo)
